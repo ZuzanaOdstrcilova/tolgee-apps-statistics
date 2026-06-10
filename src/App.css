@@ -1,0 +1,209 @@
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, system-ui, sans-serif;
+  color: #222;
+  background: #fff;
+}
+
+main {
+  padding: 16px;
+}
+
+main h1,
+main h2 {
+  margin-top: 0;
+}
+
+.kv {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.kv th {
+  text-align: left;
+  padding: 4px 12px 4px 0;
+  font-weight: 500;
+  color: #666;
+}
+
+.kv td {
+  padding: 4px 0;
+}
+
+.kv code {
+  background: #f3f3f3;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+/* ---- Dashboard ---- */
+.dash {
+  max-width: 760px;
+}
+.dash-head h1 {
+  margin-bottom: 2px;
+}
+.dash-sub {
+  margin: 0 0 20px;
+  color: #666;
+  font-size: 14px;
+}
+.dash-error {
+  background: #fff4f4;
+  border: 1px solid #f3c0c0;
+  color: #a11;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.dash-gauges {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.gauge {
+  border: 1px solid #ececec;
+  border-radius: 12px;
+  padding: 16px;
+  background: #fafafa;
+}
+.gauge-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.gauge-label {
+  font-size: 13px;
+  color: #555;
+  font-weight: 500;
+}
+.gauge-value {
+  font-size: 30px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.gauge-track {
+  height: 8px;
+  background: #e8e8e8;
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 10px 0 8px;
+}
+.gauge-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+.gauge-foot {
+  font-size: 12px;
+  color: #888;
+}
+.dash-note {
+  font-size: 12px;
+  color: #999;
+  margin: 12px 2px 22px;
+}
+.dash-cards {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+  margin-bottom: 28px;
+}
+.stat {
+  border: 1px solid #ececec;
+  border-radius: 10px;
+  padding: 12px;
+  text-align: center;
+}
+.stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.stat-label {
+  font-size: 11px;
+  color: #777;
+  margin-top: 2px;
+}
+.dash-chart-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.dash-chart-head h2 {
+  font-size: 15px;
+  margin: 0;
+}
+.legend {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  color: #666;
+}
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.chart {
+  width: 100%;
+  height: 120px;
+  margin-top: 10px;
+  display: block;
+}
+.dash-empty {
+  color: #999;
+  font-size: 13px;
+  border: 1px dashed #ddd;
+  border-radius: 10px;
+  padding: 20px;
+  text-align: center;
+  margin-top: 10px;
+}
+
+/* ---- Tools panel ---- */
+.panel {
+  font-size: 13px;
+}
+.panel h2 {
+  font-size: 14px;
+}
+.panel-hint {
+  color: #888;
+}
+.panel-card {
+  border: 1px solid #ececec;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.panel-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 0;
+}
+.panel-row + .panel-row {
+  border-top: 1px solid #f2f2f2;
+}
+.panel-key {
+  color: #777;
+}
+.panel-val {
+  font-variant-numeric: tabular-nums;
+}
+.badge {
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
