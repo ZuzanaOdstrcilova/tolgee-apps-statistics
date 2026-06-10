@@ -1,11 +1,55 @@
+/* Semantic theme tokens mapped to Tolgee's ACTUAL palette
+   (tolgee-platform webapp/src/colors.tsx). Tolgee doesn't expose its
+   tokens to the iframe at runtime, so we mirror the real hex values here
+   and follow the host's light/dark via prefers-color-scheme.
+     --s-text      = text          --s-line      = divider1
+     --s-dim       = textSecondary --s-line-soft = tile.background
+     --s-surface   = backgroundPaper --s-canvas  = background
+     --s-accent    = primary       --s-tip-*     = tooltip.{background,text} */
+:root {
+  --s-text: #4e5967;
+  --s-dim: #808080;
+  --s-faint: #a2a9b3;
+  --s-line: #e1e5eb;
+  --s-line-soft: #f7f8fb;
+  --s-surface: #ffffff;
+  --s-track: #e1e5eb;
+  --s-tip-bg: #ffffff;
+  --s-tip-text: #111111;
+  --s-canvas: #fdfdff;
+  --s-accent: #ec407a;
+  --s-not-reviewed: #d2d7df;
+}
+
+/* Dark values applied via the data-theme attribute, which App sets from the
+   theme mode (OS by default, or the Design-kit Light/Dark/System toggle). */
+:root[data-theme='dark'] {
+  --s-text: #dddddd;
+  --s-dim: #acacac;
+  --s-faint: #8b94a1;
+  --s-line: #2c3c52;
+  --s-line-soft: #233043;
+  --s-surface: #1e2b3e;
+  --s-track: #2c3c52;
+  --s-tip-bg: #394556;
+  --s-tip-text: #efefef;
+  --s-canvas: #1f2d40;
+  --s-accent: #ff6995;
+  --s-not-reviewed: #3b4858;
+}
+
 html,
 body,
 #root {
   margin: 0;
   padding: 0;
+  /* Tolgee's base font size (their MUI theme uses htmlFontSize: 15), so MUI's
+     rem-based components render at the same sizes as Tolgee, not ~7% larger. */
+  font-size: 15px;
   font-family: -apple-system, system-ui, sans-serif;
-  color: #222;
-  background: #fff;
+  color: var(--s-text);
+  /* Transparent so the Tolgee host background shows through the iframe. */
+  background: transparent;
 }
 
 main {
@@ -206,4 +250,24 @@ main h2 {
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 999px;
+}
+
+/* ---- Skeleton / loading shimmer (dashboard match-score tab) ---- */
+@keyframes s-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.s-skel {
+  background-image: linear-gradient(
+    90deg,
+    var(--s-line-soft) 25%,
+    var(--s-line) 50%,
+    var(--s-line-soft) 75%
+  );
+  background-size: 200% 100%;
+  animation: s-shimmer 1.4s ease-in-out infinite;
+  border-radius: 8px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .s-skel { animation: none; }
 }

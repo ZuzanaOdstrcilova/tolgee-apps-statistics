@@ -12,15 +12,18 @@
     "typecheck": "tsc -b",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "seed:dummy": "node scripts/seed-dummy.mjs",
     "pull-context": "node scripts/pull-context.mjs"
   },
   "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/material": "^9.1.0",
     "@tginternal/client": "0.0.0-prerelease.c8329b552",
     "@tolgee/apps-sdk": "0.0.1-alpha.2",
     "express": "^4.21.0",
     "react": "^19.2.6",
-    "react-dom": "^19.2.6"
+    "react-dom": "^19.2.6",
+    "recharts": "^3.8.1"
   },
   "devDependencies": {
     "@tolgee/apps-dev": "0.0.1-alpha.2",

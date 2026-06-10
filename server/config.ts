@@ -19,7 +19,7 @@ export const LOCAL_BASE_URL = `http://localhost:${VITE_PORT}`
  */
 export const TUNNEL_STATE_DIR = join(__dirname, '..', '.tolgee-dev')
 export const TUNNEL_STATE_FILE = join(TUNNEL_STATE_DIR, 'tunnel.json')
-const INSTALL_FILE = join(TUNNEL_STATE_DIR, 'install.json')
+export const INSTALL_FILE = join(TUNNEL_STATE_DIR, 'install.json')
 
 const installWebhookSecret = (): string | null => {
   try {

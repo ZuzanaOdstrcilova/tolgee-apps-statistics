@@ -2,6 +2,7 @@ import express, { type Express, type Request, type Response } from 'express'
 import { onWebhook, receiveWebhook } from '@tolgee/apps-sdk/server'
 import { WEBHOOK_SECRET } from '../config'
 import { store } from '../store'
+import { invalidateMatch } from '../match'
 
 export const registerWebhookRoute = (app: Express): void => {
   // express.text keeps the body verbatim — the SDK verifier needs the raw
@@ -26,27 +27,25 @@ const handleWebhook = async (req: Request, res: Response): Promise<void> => {
   }
   const payload = result.payload
 
-  // Translation text edits → classify AI vs human authorship.
+  // Translation text edits → classify AI vs human authorship, and drop the
+  // match cache for touched translations so the next /api/match recomputes them.
   onWebhook(payload, 'SET_TRANSLATIONS', (typed) => {
     const iso = isoTimestamp(typed.activityData?.timestamp)
-    store.recordTranslationEdits(typed.activityData?.modifiedEntities?.Translation ?? [], iso)
+    const ents = typed.activityData?.modifiedEntities?.Translation ?? []
+    store.recordTranslationEdits(ents, iso)
+    for (const e of ents) invalidateMatch(e.entityId)
   })
 
   // State transitions → REVIEWED credits the current author's "accuracy".
   onWebhook(payload, 'SET_TRANSLATION_STATE', (typed) => {
     const iso = isoTimestamp(typed.activityData?.timestamp)
-    store.recordStateChanges(typed.activityData?.modifiedEntities?.Translation ?? [], iso)
+    const ents = typed.activityData?.modifiedEntities?.Translation ?? []
+    store.recordStateChanges(ents, iso)
+    for (const e of ents) invalidateMatch(e.entityId)
   })
 
-  // Key lifecycle counts.
-  onWebhook(payload, 'CREATE_KEY', (typed) => {
-    const keys = typed.activityData?.modifiedEntities?.Key?.length
-    store.recordKeyCreated(keys ?? typed.activityData?.counts?.Key ?? 1)
-  })
-  onWebhook(payload, 'KEY_DELETE', (typed) => {
-    // KEY_DELETE ships no modifiedEntities — fall back to the activity counts.
-    store.recordKeyDeleted(typed.activityData?.counts?.Key ?? 1)
-  })
+  // CREATE_KEY / KEY_DELETE are still subscribed in the manifest but no longer
+  // tracked — nothing in the app consumed key counts. Acknowledged below.
 
   res.status(204).end()
 }

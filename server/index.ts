@@ -5,6 +5,7 @@ import { registerManifestRoute } from './routes/manifest'
 import { registerWebhookRoute } from './routes/webhook'
 import { registerDecoratorsRoute } from './routes/decorators'
 import { registerStatsRoute } from './routes/stats'
+import { registerMatchRoute } from './routes/match'
 
 const app = express()
 
@@ -21,6 +22,7 @@ app.use(json())
 registerManifestRoute(app)
 registerDecoratorsRoute(app)
 registerStatsRoute(app)
+registerMatchRoute(app)
 
 app.listen(SERVER_PORT, () => {
   console.log(`statistics server listening on http://localhost:${SERVER_PORT}`)

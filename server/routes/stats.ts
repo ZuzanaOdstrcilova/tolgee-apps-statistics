@@ -2,18 +2,13 @@ import type { Express, Request, Response } from 'express'
 import { store } from '../store'
 
 /**
- * Read-only JSON endpoints consumed by the iframe modules:
- *  - GET /api/stats          → project-wide aggregate for the dashboard
- *  - GET /api/state?ids=1,2  → per-translation standing for the tools panel
+ * Per-translation standing for the translations tools panel:
+ *  - GET /api/state?ids=1,2  → { records: { <id>: {origin, reviewed, updatedAt} } }
  *
- * Both inherit the SDK CORS headers applied in server/index.ts, so the
- * webapp (a different origin) can read them.
+ * Inherits the SDK CORS headers applied in server/index.ts. (The dashboard's
+ * project-wide metrics live on /api/match — see routes/match.ts.)
  */
 export const registerStatsRoute = (app: Express): void => {
-  app.get('/api/stats', (_req: Request, res: Response) => {
-    res.json(store.getSummary())
-  })
-
   app.get('/api/state', (req: Request, res: Response) => {
     res.json({ records: store.getRecords(parseIds(req.query.ids)) })
   })

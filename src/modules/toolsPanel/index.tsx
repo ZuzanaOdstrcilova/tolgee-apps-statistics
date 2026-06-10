@@ -1,31 +1,56 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   createTolgeeApp,
   type TolgeeApp,
   type TolgeeAppSelection,
 } from '@tolgee/apps-sdk/browser'
+import { ThemeProvider } from '@mui/material/styles'
+import { buildTolgeeTheme } from '../../theme/tolgeeTheme'
+import {
+  PanelView,
+  toDonut,
+  DONUT,
+  DONUT_TOTAL,
+  DONUT_KEYS,
+} from '../dashboard/matchView'
+import type { MatchResponse } from '../dashboard/matchData'
 
-type Origin = 'ai' | 'human'
-type TranslationRecord = {
-  origin: Origin
-  reviewed: boolean
-  updatedAt: string
-}
+const STANDALONE = window.parent === window
 
-const ORIGIN_LABEL: Record<Origin, string> = { ai: 'AI', human: 'Translator' }
-const ORIGIN_COLOR: Record<Origin, string> = { ai: '#7c5cff', human: '#16a34a' }
-
+// Translation tools panel: AI match-score summary for the focused language,
+// over ALL TIME. Reuses the dashboard's match components (matchView/PanelView)
+// and our /api/match endpoint. Standalone preview shows mock data.
 export default function ToolsPanel() {
-  const [selection, setSelection] = useState<TolgeeAppSelection>({})
-  const [record, setRecord] = useState<TranslationRecord | null>(null)
-  const [loading, setLoading] = useState(false)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const appRef = useRef<TolgeeApp | null>(null)
+  const [selection, setSelection] = useState<TolgeeAppSelection>({})
+  const [projectId, setProjectId] = useState<number>()
+  const [match, setMatch] = useState<MatchResponse | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  // Follow the OS light/dark (Tolgee's "system") for the MUI theme + CSS vars.
+  const [mode, setMode] = useState<'light' | 'dark'>(() =>
+    window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  )
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const onChange = (e: MediaQueryListEvent) => setMode(e.matches ? 'dark' : 'light')
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  useEffect(() => {
+    document.documentElement.dataset.theme = mode
+  }, [mode])
+  const theme = useMemo(() => buildTolgeeTheme(mode), [mode])
 
   useEffect(() => {
+    if (STANDALONE) return
     const app = createTolgeeApp()
     appRef.current = app
-    app.context.then((ctx) => setSelection(ctx.selection))
+    app.context.then((ctx) => {
+      setProjectId(ctx.projectId)
+      setSelection(ctx.selection)
+    })
     const off = app.onSelectionChanged(setSelection)
     return () => {
       off()
@@ -34,75 +59,79 @@ export default function ToolsPanel() {
     }
   }, [])
 
-  // Fetch the focused translation's standing from our backend.
+  // Fetch real match scores for the focused language (all time).
+  const tag = selection.languageTag
   useEffect(() => {
-    const id = selection.translationId
-    if (id == null) {
-      setRecord(null)
+    if (STANDALONE || projectId == null || !tag) {
+      setMatch(null)
       return
     }
     const ctrl = new AbortController()
     setLoading(true)
-    fetch(`/api/state?ids=${id}`, { signal: ctrl.signal })
+    fetch(`/api/match?projectId=${projectId}&langs=${tag}&range=all`, { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data: { records: Record<string, TranslationRecord> } | null) => {
-        setRecord(data?.records[String(id)] ?? null)
+      .then((d: MatchResponse | null) => {
+        setMatch(d && d.ok ? d : null)
         setLoading(false)
       })
-      .catch((err) => {
-        if (err.name !== 'AbortError') {
-          console.warn('stats panel fetch:', err)
-          setLoading(false)
-        }
+      .catch((e: unknown) => {
+        if (e instanceof Error && e.name !== 'AbortError') setLoading(false)
       })
     return () => ctrl.abort()
-  }, [selection.translationId])
+  }, [projectId, tag])
 
   // Keep the host iframe sized to the content.
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
-    const observer = new ResizeObserver(() => {
-      appRef.current?.resize(el.scrollHeight)
-    })
+    const observer = new ResizeObserver(() => appRef.current?.resize(el.scrollHeight))
     observer.observe(el)
     return () => observer.disconnect()
   }, [])
 
+  let content
+  if (STANDALONE) {
+    content = (
+      <PanelView
+        flag="🇨🇿"
+        name="Czech"
+        scope="All time"
+        donutData={DONUT}
+        totalWords={DONUT_TOTAL}
+        totalKeys={DONUT_KEYS}
+        langCount={1}
+        avgScore={81.7}
+        reviewedScore={62.8}
+      />
+    )
+  } else if (!tag) {
+    content = (
+      <p className="panel-hint">Focus a translation to see its language's AI match scores.</p>
+    )
+  } else if (loading && !match) {
+    content = <p className="panel-hint">Loading…</p>
+  } else if (!match) {
+    content = <p className="panel-hint">No AI match data for this language yet.</p>
+  } else {
+    const lang = match.perLang[0]
+    content = (
+      <PanelView
+        flag={lang?.flag ?? ''}
+        name={lang?.name ?? tag}
+        scope="All time"
+        donutData={toDonut(match.totals)}
+        totalWords={match.totals.reviewedWords}
+        totalKeys={match.totals.reviewedKeys}
+        langCount={match.totals.langCount}
+        avgScore={match.avgMatchScore}
+        reviewedScore={match.reviewedPct}
+      />
+    )
+  }
+
   return (
-    <main ref={containerRef} className="panel">
-      <h2>Statistics</h2>
-      {selection.translationId == null ? (
-        <p className="panel-hint">Focus a translation cell to see its origin and status.</p>
-      ) : loading ? (
-        <p className="panel-hint">Loading…</p>
-      ) : record == null ? (
-        <p className="panel-hint">
-          No tracked activity for this translation yet. Edits made while the app is
-          installed will appear here.
-        </p>
-      ) : (
-        <div className="panel-card">
-          <div className="panel-row">
-            <span className="panel-key">Origin</span>
-            <span className="badge" style={{ background: ORIGIN_COLOR[record.origin] }}>
-              {ORIGIN_LABEL[record.origin]}
-            </span>
-          </div>
-          <div className="panel-row">
-            <span className="panel-key">Status</span>
-            <span className="panel-val">
-              {record.reviewed ? '✓ Reviewed' : 'Awaiting review'}
-            </span>
-          </div>
-          <div className="panel-row">
-            <span className="panel-key">Last edit</span>
-            <span className="panel-val">
-              {new Date(record.updatedAt).toLocaleString()}
-            </span>
-          </div>
-        </div>
-      )}
-    </main>
+    <ThemeProvider theme={theme}>
+      <div ref={containerRef}>{content}</div>
+    </ThemeProvider>
   )
 }
