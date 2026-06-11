@@ -69,6 +69,33 @@ export const RANGE_TO_PARAM: Record<string, RangeParam> = {
 /** Period labels in display order (for the dashboard + panel pickers). */
 export const RANGE_LABELS = Object.keys(RANGE_TO_PARAM)
 
+/**
+ * `{origin}/projects/{id}` — base for deep-linking into Tolgee's own pages
+ * (opened in a new tab). The apps host (the iframe's parent, read from
+ * `document.referrer`) serves the project pages too. Empty if unavailable.
+ */
+export const tolgeeProjectUrl = (projectId?: number): string => {
+  if (projectId == null) return ''
+  try {
+    const origin = document.referrer ? new URL(document.referrer).origin : ''
+    return origin ? `${origin}/projects/${projectId}` : ''
+  } catch {
+    return ''
+  }
+}
+
+/** A counter that bumps whenever the window regains focus — include it in an
+ *  effect's deps to refetch after the user returns from a Tolgee editor tab. */
+export function useFocusKey(): number {
+  const [key, setKey] = useState(0)
+  useEffect(() => {
+    const bump = () => setKey((k) => k + 1)
+    window.addEventListener('focus', bump)
+    return () => window.removeEventListener('focus', bump)
+  }, [])
+  return key
+}
+
 const zeroBuckets = (): Record<BucketKey, BucketAgg> => ({
   b100: { words: 0, keys: 0, langs: 0 },
   b9990: { words: 0, keys: 0, langs: 0 },

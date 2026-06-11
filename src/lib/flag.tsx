@@ -2,6 +2,8 @@
 // (consistent across platforms), not the OS emoji glyph. Tolgee stores a
 // `flagEmoji` per language; we convert it to the matching Twemoji asset.
 
+import { ICON } from '../theme/icons'
+
 /** Emoji → Twemoji SVG URL (e.g. "🇩🇪" → ".../1f1e9-1f1ea.svg"). */
 export const twemojiUrl = (emoji: string): string => {
   const cps = [...emoji]
@@ -11,7 +13,7 @@ export const twemojiUrl = (emoji: string): string => {
   return `https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/svg/${cps}.svg`
 }
 
-export function Flag({ emoji, size = 16 }: { emoji: string; size?: number }) {
+export function Flag({ emoji, size = ICON.sm }: { emoji: string; size?: number }) {
   if (!emoji) return null
   return (
     <img

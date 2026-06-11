@@ -11,6 +11,8 @@ import {
   PolarAngleAxis,
 } from 'recharts'
 import type { BucketKey, MatchTotals } from './matchData'
+import { FONT, SANS } from '../../theme/typography'
+import { ICON } from '../../theme/icons'
 
 // Shared match-score visual layer, reused by BOTH the dashboard tab and the
 // translation tools panel. Owns the colour palette, the metric styles, the
@@ -37,8 +39,9 @@ export const COL = {
   tipText: 'var(--s-tip-text)',
 } as const
 
-export const SANS =
-  "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
+// SANS / FONT now live in src/theme/typography.ts (single source of truth);
+// re-exported here so existing `import { SANS } from './matchView'` keeps working.
+export { SANS }
 
 export type Bucket = { key: string; label: string; color: string }
 export const BUCKETS: Bucket[] = [
@@ -171,11 +174,10 @@ export const M: Record<string, CSSProperties> = {
     inset: 0,
     display: 'grid',
     placeItems: 'center',
-    fontSize: 22,
-    fontWeight: 650,
+    ...FONT.display,
     color: COL.text,
   },
-  gaugeLabel: { fontSize: 12, color: COL.dim },
+  gaugeLabel: { ...FONT.micro, color: COL.dim },
   donutCenter: {
     position: 'absolute',
     inset: 0,
@@ -187,10 +189,10 @@ export const M: Record<string, CSSProperties> = {
     textAlign: 'center',
     pointerEvents: 'none',
   },
-  donutCenterV: { fontSize: 22, fontWeight: 650, color: COL.text, lineHeight: 1 },
-  donutCenterL: { fontSize: 10, color: COL.faint, marginTop: 3 },
+  donutCenterV: { ...FONT.display, color: COL.text, lineHeight: 1 },
+  donutCenterL: { ...FONT.nano, color: COL.faint, marginTop: 3 },
   donutLegend: { display: 'flex', flexDirection: 'column', gap: 9 },
-  lg: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: COL.dim },
+  lg: { display: 'flex', alignItems: 'center', gap: 8, ...FONT.caption, color: COL.dim },
   dot: { width: 9, height: 9, borderRadius: '50%', flex: 'none', display: 'inline-block' },
   tips: {
     background: COL.surface,
@@ -199,8 +201,8 @@ export const M: Record<string, CSSProperties> = {
     padding: '20px 24px',
   },
   tipsHead: { display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 14 },
-  tipsTitle: { color: COL.text, fontSize: 15, fontWeight: 600 },
-  tipsHint: { color: COL.dim, fontSize: 12.5 },
+  tipsTitle: { color: COL.text, ...FONT.subtitle },
+  tipsHint: { color: COL.dim, ...FONT.caption },
   tipCard: {
     display: 'flex',
     flexDirection: 'column',
@@ -212,11 +214,11 @@ export const M: Record<string, CSSProperties> = {
     textDecoration: 'none',
   },
   tipHead: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  tipName: { color: COL.accent, fontSize: 13.5, fontWeight: 600 },
-  tipDesc: { color: COL.dim, fontSize: 12.5, lineHeight: 1.4 },
+  tipName: { color: COL.accent, ...FONT.label },
+  tipDesc: { color: COL.dim, ...FONT.caption, lineHeight: 1.4 },
   tipStat: {
     color: COL.faint,
-    fontSize: 11.5,
+    ...FONT.micro,
     fontWeight: 500,
     marginTop: 6,
     paddingTop: 8,
@@ -374,7 +376,7 @@ export function MatchBar({
   ].filter((s) => s.value > 0)
   const total = segs.reduce((s, x) => s + x.value, 0)
   if (total === 0) {
-    return <div style={{ fontSize: 12, fontStyle: 'italic', color: COL.faint }}>No AI data yet</div>
+    return <div style={{ ...FONT.micro, fontStyle: 'italic', color: COL.faint }}>No AI data yet</div>
   }
   return (
     <div style={{ display: 'flex', height: 16, gap: 1.5, width: '100%' }}>
@@ -420,8 +422,8 @@ export function MatchDonut(props: {
 
 export function TipIcon({ type }: { type: 'open' | 'edit' | 'info' }) {
   const p = {
-    width: 15,
-    height: 15,
+    width: ICON.md,
+    height: ICON.md,
     viewBox: '0 0 24 24',
     fill: 'none',
     stroke: COL.faint,
@@ -429,29 +431,46 @@ export function TipIcon({ type }: { type: 'open' | 'edit' | 'info' }) {
     strokeLinecap: 'round' as const,
     strokeLinejoin: 'round' as const,
   }
+  // All three icons are Untitled UI (https://untitledui.com/icon), 24px stroke
+  // outlines — info-circle, link-external-01, edit-02.
   if (type === 'info') {
     return (
       <svg {...p}>
-        <circle cx="12" cy="12" r="9" />
-        <path d="M12 16v-4" />
-        <path d="M12 8h.01" />
+        <path d="m12 16v-4m0-4h.01m9.99 4c0 5.5228-4.4772 10-10 10-5.52285 0-10-4.4772-10-10 0-5.52285 4.47715-10 10-10 5.5228 0 10 4.47715 10 10z" />
       </svg>
     )
   }
   if (type === 'open') {
     return (
       <svg {...p}>
-        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-        <path d="M15 3h6v6" />
-        <path d="M10 14 21 3" />
+        <path d="m21 9v-6m0 0h-6m6 0-8 8m-3-6h-2.2c-1.68016 0-2.52024 0-3.16197.32698-.56449.28762-1.02343.74656-1.31105 1.31105-.32698.64173-.32698 1.48181-.32698 3.16197v6.4c0 1.6802 0 2.5202.32698 3.162.28762.5645.74656 1.0234 1.31105 1.311.64173.327 1.48181.327 3.16197.327h6.4c1.6802 0 2.5202 0 3.162-.327.5645-.2876 1.0234-.7465 1.311-1.311.327-.6418.327-1.4818.327-3.162v-2.2" />
       </svg>
     )
   }
   return (
     <svg {...p}>
-      <path d="M12 20h9" />
-      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+      <path d="m18 10-4-4m-11.50003 15.5 3.38437-.376c.41349-.046.62023-.069.81348-.1315.17144-.0555.3346-.1339.48504-.2331.16956-.1119.31665-.2589.61084-.5531l13.2063-13.2063c1.1046-1.10457 1.1046-2.89543 0-4s-2.8954-1.10457-4 0l-13.2063 13.2063c-.29418.2942-.44128.4412-.55309.6108-.09921.1505-.17763.3136-.23313.4851-.06255.1932-.08553.3999-.13147.8134z" />
     </svg>
+  )
+}
+
+/** An (i) icon that reveals a description on hover — used in the panel where the
+ *  dashboard's under-heading description text doesn't fit inline. */
+export function InfoTip({ text }: { text: string }) {
+  return (
+    <MuiTooltip arrow title={text} placement="top">
+      <span
+        style={{ display: 'inline-flex', cursor: 'help' }}
+        onClick={(e) => {
+          // When nested inside a row-link, the (i) only reveals info — don't
+          // follow the link.
+          e.preventDefault()
+          e.stopPropagation()
+        }}
+      >
+        <TipIcon type="info" />
+      </span>
+    </MuiTooltip>
   )
 }
 
@@ -466,16 +485,16 @@ const TIPS: {
   {
     name: 'Project description',
     desc: 'Describe your project and brand so AI matches your tone, terminology and style.',
-    stat: 'Set · updated 3 days ago',
-    short: 'Set',
-    icon: 'edit',
+    stat: 'Is set · updated 3 days ago',
+    short: 'Is set',
+    icon: 'open',
   },
   {
     name: 'Language notes',
     desc: 'Set tone, formality and terminology per language.',
     stat: '3 of 5 languages set · updated 12 Jan',
     short: '3 of 5 set',
-    icon: 'edit',
+    icon: 'open',
   },
   {
     name: 'AI playground',
@@ -488,16 +507,33 @@ const TIPS: {
 
 /** Simplified "Improve AI accuracy" — compact rows (name + short status +
  *  icon), no descriptions or cards. Used in the narrow tools panel. */
-export type TipItem = { name: string; stat: string; icon: 'open' | 'edit' | 'info' }
+export type TipItem = {
+  name: string
+  stat: string
+  icon: 'open' | 'edit' | 'info'
+  /** Tolgee deep-link, opened in a new tab; omitted → inert. */
+  href?: string
+  /** Longer description, revealed via the (i) tooltip (matches the dashboard). */
+  desc?: string
+}
+
+// Anchor props that open `href` in a new tab (or stay inert when absent).
+const linkProps = (href?: string) =>
+  href
+    ? { href, target: '_blank' as const, rel: 'noopener noreferrer' }
+    : { href: '#' }
 
 export function ImproveAiTipsCompact({ tips = TIPS }: { tips?: TipItem[] }) {
   return (
     <div style={{ marginTop: 6, borderTop: `1px solid ${COL.line}`, paddingTop: 16 }}>
-      <div style={{ ...M.tipsTitle, marginBottom: 4 }}>Improve AI accuracy</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+        <span style={M.tipsTitle}>Improve AI accuracy</span>
+        <InfoTip text="Better context means higher match scores and less manual editing." />
+      </div>
       {tips.map((t, i) => (
         <a
           key={t.name}
-          href="#"
+          {...linkProps(t.href)}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -508,11 +544,13 @@ export function ImproveAiTipsCompact({ tips = TIPS }: { tips?: TipItem[] }) {
           }}
         >
           <div style={{ flex: 1 }}>
-            <div style={{ color: COL.text, fontSize: 13.5, fontWeight: 500 }}>{t.name}</div>
-            <div style={{ color: COL.dim, fontSize: 11.5, marginTop: 2 }}>{t.stat}</div>
+            <div style={{ color: COL.text, ...FONT.label, fontWeight: 500 }}>{t.name}</div>
+            <div style={{ color: COL.dim, ...FONT.micro, marginTop: 2 }}>{t.stat}</div>
           </div>
-          <TipIcon type={t.icon} />
-          <TipIcon type="info" />
+          <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {t.desc && <InfoTip text={t.desc} />}
+            <TipIcon type={t.icon} />
+          </span>
         </a>
       ))}
     </div>
@@ -524,6 +562,8 @@ export type FullTipItem = {
   desc: string
   stat: string
   icon: 'open' | 'edit' | 'info'
+  /** Tolgee deep-link, opened in a new tab; omitted → inert. */
+  href?: string
 }
 
 /** "Improve AI accuracy" cards. `cols` = how many across; `tips` defaults to
@@ -539,7 +579,7 @@ export function ImproveAiTips({ cols = 3, tips = TIPS }: { cols?: number; tips?:
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 14 }}>
         {tips.map((t) => (
-          <a key={t.name} href="#" style={M.tipCard}>
+          <a key={t.name} {...linkProps(t.href)} style={M.tipCard}>
             <span style={M.tipHead}>
               <span style={M.tipName}>{t.name}</span>
               <TipIcon type={t.icon} />
@@ -593,7 +633,7 @@ export function PanelView({
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span
           style={{
-            fontSize: 14,
+            ...FONT.body,
             fontWeight: 600,
             textTransform: 'uppercase',
             letterSpacing: '0.4px',
@@ -601,8 +641,9 @@ export function PanelView({
         >
           AI accuracy
         </span>
+        <InfoTip text="Match compares the text AI produced with the final reviewer-approved text — 100% means the reviewer kept it unchanged." />
         <span title={name} style={{ display: 'inline-flex' }}>
-          <Flag emoji={flag} size={18} />
+          <Flag emoji={flag} size={ICON.md} />
         </span>
         <FormControl size="small" sx={{ marginLeft: 'auto', minWidth: 140 }}>
           <Select
@@ -633,10 +674,10 @@ export function PanelView({
             textAlign: 'center',
           }}
         >
-          <div style={{ fontSize: 26, fontWeight: 700, color: scoreColor(avgScore) }}>
+          <div style={{ ...FONT.display, color: scoreColor(avgScore) }}>
             {avgScore}%
           </div>
-          <div style={{ fontSize: 12, color: COL.dim, marginTop: 2 }}>Avg match score</div>
+          <div style={{ ...FONT.micro, color: COL.dim, marginTop: 2 }}>Avg match score</div>
         </div>
         <div
           style={{
@@ -646,8 +687,8 @@ export function PanelView({
             textAlign: 'center',
           }}
         >
-          <div style={{ fontSize: 26, fontWeight: 700, color: COL.text }}>{reviewedScore}%</div>
-          <div style={{ fontSize: 12, color: COL.dim, marginTop: 2 }}>Reviewed</div>
+          <div style={{ ...FONT.display, color: COL.text }}>{reviewedScore}%</div>
+          <div style={{ ...FONT.micro, color: COL.dim, marginTop: 2 }}>Reviewed</div>
         </div>
       </div>
       <MatchBar data={donutData} notReviewedWords={notReviewedWords} />
@@ -671,7 +712,7 @@ export function PanelSkeleton() {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        {cell({ width: 18, height: 18, borderRadius: 4 })}
+        {cell({ width: ICON.md, height: ICON.md, borderRadius: 4 })}
         {cell({ width: 90, height: 14, borderRadius: 6 })}
         {cell({ width: 120, height: 32, borderRadius: 8, marginLeft: 'auto' })}
       </div>

@@ -5,13 +5,9 @@ import { INSTALL_FILE, TOLGEE_URL } from './config'
  * Server-to-Tolgee REST access. The app authenticates with the install
  * `clientSecret` as an `X-API-Key` header — the credential `npm run register`
  * wrote to `.tolgee-dev/install.json`. Effective permissions are the app's
- * granted scopes, so the server can read the AI-match-stats aggregate for any
- * enabled project WITHOUT forwarding the iframe's context token.
- *
- * The match scores now come from Tolgee's native, pre-aggregated endpoint
- * `GET /v2/projects/{id}/ai-match-stats[/languages]` (scope: `translations.view`).
- * The old per-translation history N+1 is gone — Tolgee reconstructs and scores
- * server-side and pushes the time range into SQL.
+ * granted scopes (translations.view, keys.view, activity.view), so the server
+ * can read translations + per-translation history for any enabled project
+ * WITHOUT forwarding the iframe's context token.
  */
 
 type InstallRecord = { tolgeeUrl?: string; clientSecret?: string }
@@ -34,6 +30,9 @@ const readInstall = (): { secret: string; url: string } | null => {
 
 export const tolgeeReady = (): boolean => readInstall() !== null
 
+/** The Tolgee instance base URL (to absolutise relative paths like avatars). */
+export const tolgeeBaseUrl = (): string | null => readInstall()?.url ?? null
+
 const tolgeeFetch = async <T>(path: string, qs?: URLSearchParams): Promise<T> => {
   const cred = readInstall()
   if (!cred) throw new Error('install record missing — run `npm run register`')
@@ -45,7 +44,7 @@ const tolgeeFetch = async <T>(path: string, qs?: URLSearchParams): Promise<T> =>
   return (await res.json()) as T
 }
 
-// ---- Languages (for the AI-context links + pickers) ------------------------
+// ---- Types ----------------------------------------------------------------
 
 export type ProjectLang = {
   id: number
@@ -61,6 +60,17 @@ export type ProjectLanguages = {
   byTag: Map<string, ProjectLang>
 }
 
+export type ListedTranslation = {
+  translationId: number
+  tag: string
+  text: string
+  state: string
+  auto: boolean
+  mtProvider?: string
+}
+
+// ---- Raw response shapes (narrow subset of the OpenAPI models) -------------
+
 type LanguagesResponse = {
   _embedded?: {
     languages?: Array<{
@@ -72,6 +82,23 @@ type LanguagesResponse = {
     }>
   }
 }
+
+type TranslationView = {
+  id?: number
+  text?: string | null
+  state?: string
+  auto?: boolean
+  mtProvider?: string | null
+}
+
+type KeysResponse = {
+  nextCursor?: string
+  _embedded?: {
+    keys?: Array<{ translations?: Record<string, TranslationView | undefined> }>
+  }
+}
+
+// ---- Fetchers --------------------------------------------------------------
 
 const langCache = new Map<number, Promise<ProjectLanguages>>()
 
@@ -105,6 +132,173 @@ export const getProjectLanguages = (projectId: number): Promise<ProjectLanguages
     langCache.delete(projectId)
     throw err
   })
+}
+
+const PAGE_SIZE = 200
+const MAX_PAGES = 1000
+
+/** Cursor-page a translations query, collecting one language column. */
+const pageTranslations = async (
+  projectId: number,
+  tag: string,
+  extra: (qs: URLSearchParams) => void,
+  keep: (t: ListedTranslation) => boolean
+): Promise<ListedTranslation[]> => {
+  const out: ListedTranslation[] = []
+  let cursor: string | undefined
+  for (let i = 0; i < MAX_PAGES; i++) {
+    const qs = new URLSearchParams()
+    qs.append('languages', tag)
+    qs.set('size', String(PAGE_SIZE))
+    if (cursor) qs.set('cursor', cursor)
+    extra(qs)
+    const json = await tolgeeFetch<KeysResponse>(
+      `/v2/projects/${projectId}/translations`,
+      qs
+    )
+    const keys = json._embedded?.keys ?? []
+    for (const k of keys) {
+      const t = k.translations?.[tag]
+      if (!t || typeof t.id !== 'number') continue
+      const row: ListedTranslation = {
+        translationId: t.id,
+        tag,
+        text: t.text ?? '',
+        state: t.state ?? '',
+        auto: t.auto === true,
+        mtProvider: t.mtProvider ?? undefined,
+      }
+      if (keep(row)) out.push(row)
+    }
+    cursor = json.nextCursor
+    if (!cursor || keys.length === 0) break
+  }
+  return out
+}
+
+/**
+ * The set of translation entity IDs that CURRENTLY exist in the project (all
+ * languages, any state). Contributor stats are reconstructed from the activity
+ * log, which is append-only — deleting a key leaves its historical events
+ * behind. Intersecting with this set drops contributions to deleted strings so
+ * volume/languages reflect what still exists.
+ */
+export const fetchAliveTranslationIds = async (projectId: number): Promise<Set<number>> => {
+  // Request EVERY language explicitly — without `languages` the endpoint returns
+  // only a subset, which would drop live work in the other languages.
+  const { list } = await getProjectLanguages(projectId)
+  const tags = list.map((l) => l.tag)
+  const ids = new Set<number>()
+  if (tags.length === 0) return ids
+  let cursor: string | undefined
+  for (let i = 0; i < MAX_PAGES; i++) {
+    const qs = new URLSearchParams()
+    qs.set('languages', tags.join(','))
+    qs.set('size', String(PAGE_SIZE))
+    if (cursor) qs.set('cursor', cursor)
+    const json = await tolgeeFetch<KeysResponse>(`/v2/projects/${projectId}/translations`, qs)
+    const keys = json._embedded?.keys ?? []
+    for (const k of keys) {
+      for (const t of Object.values(k.translations ?? {})) {
+        if (t && typeof t.id === 'number') ids.add(t.id)
+      }
+    }
+    cursor = json.nextCursor
+    if (!cursor || keys.length === 0) break
+  }
+  return ids
+}
+
+// ---- Activity log (contributor stats) -------------------------------------
+
+/** Author of an activity revision. `id` is null for system/import events. */
+export type ActivityAuthor = {
+  id?: number
+  name?: string
+  username?: string
+  deleted?: boolean
+  /** Avatar paths are relative to the Tolgee instance — see `tolgeeBaseUrl`. */
+  avatar?: { large?: string; thumbnail?: string }
+}
+
+/** A Translation entity as it appears inside an activity revision: the changed
+ *  fields (text/state/auto/…) plus its language via `relations`. */
+export type ActivityTranslation = {
+  entityId: number
+  modifications?: Record<string, { old?: unknown; new?: unknown }>
+  relations?: {
+    language?: { data?: { tag?: string; name?: string; flagEmoji?: string } }
+    key?: { data?: { name?: string } }
+  }
+}
+
+/** One activity revision — author, type, timestamp, and changed translations. */
+export type ActivityRevision = {
+  author?: ActivityAuthor
+  type: string
+  timestamp: number
+  translations: ActivityTranslation[]
+}
+
+type ActivityResponse = {
+  _embedded?: {
+    activities?: Array<{
+      author?: ActivityAuthor
+      type?: string
+      timestamp?: number
+      modifiedEntities?: { Translation?: ActivityTranslation[] }
+    }>
+  }
+  page?: { totalPages?: number; number?: number }
+}
+
+const ACTIVITY_PAGE_SIZE = 100
+const ACTIVITY_MAX_PAGES = 200 // ≤20k revisions; the activity log is the project history
+
+/**
+ * The full project activity log (oldest matters as much as newest, so we page
+ * all of it). Each revision carries the author + the translations it touched —
+ * everything the contributor pipeline needs in ONE linear pass, no per-string
+ * history N+1.
+ */
+export const fetchActivity = async (projectId: number): Promise<ActivityRevision[]> => {
+  const out: ActivityRevision[] = []
+  for (let page = 0; page < ACTIVITY_MAX_PAGES; page++) {
+    const qs = new URLSearchParams({ size: String(ACTIVITY_PAGE_SIZE), page: String(page) })
+    const json = await tolgeeFetch<ActivityResponse>(`/v2/projects/${projectId}/activity`, qs)
+    const acts = json._embedded?.activities ?? []
+    for (const a of acts) {
+      out.push({
+        author: a.author,
+        type: a.type ?? 'UNKNOWN',
+        timestamp: a.timestamp ?? 0,
+        translations: a.modifiedEntities?.Translation ?? [],
+      })
+    }
+    const total = json.page?.totalPages ?? 1
+    if (page + 1 >= total || acts.length === 0) break
+  }
+  return out
+}
+
+/**
+ * Translation ids that currently have at least one open QA issue, per language.
+ * Cheap (one paged list per language with `filterHasQaIssuesInLang`) — used to
+ * derive each contributor's qaPass without per-translation calls.
+ */
+export const fetchQaIssueTranslationIds = async (
+  projectId: number,
+  tag: string
+): Promise<Set<number>> => {
+  const ids = new Set<number>()
+  const rows = await pageTranslations(
+    projectId,
+    tag,
+    (qs) => qs.append('filterHasQaIssuesInLang', tag),
+    () => true
+  )
+  for (const r of rows) ids.add(r.translationId)
+  return ids
 }
 
 // ---- AI match stats (native Tolgee aggregate) ------------------------------

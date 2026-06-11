@@ -13,15 +13,15 @@
   "modules": {
     "project-dashboard-page": [
       {
-        "key": "dashboard",
-        "title": "Dashboard",
+        "key": "statistics",
+        "title": "Statistics",
         "icon": "BarChartSquare01",
         "entry": "/dashboard"
       }
     ],
     "translation-tools-panel": [
       {
-        "key": "panel",
+        "key": "statistics",
         "title": "Statistics",
         "icon": "BarChartSquare01",
         "entry": "/tools-panel"

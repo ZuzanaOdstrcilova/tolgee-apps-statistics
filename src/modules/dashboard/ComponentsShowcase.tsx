@@ -21,6 +21,9 @@ import {
   type SelectChangeEvent,
 } from '@mui/material'
 import { Flag } from '../../lib/flag'
+import { TipIcon } from './matchView'
+import { FONT } from '../../theme/typography'
+import { ICON } from '../../theme/icons'
 
 // Design-kit showcase of the MUI components we reuse, themed to Tolgee and
 // matched to Tolgee's own UI (typography scale, button radius 3 / 40px tall,
@@ -45,7 +48,7 @@ const DS_LANGS: { tag: string; name: string; flag: string; base?: boolean }[] = 
 // Subtle/light chip — the unobtrusive label used e.g. next to a page title.
 export const SUBTLE_CHIP = {
   height: 22,
-  fontSize: 12,
+  ...FONT.micro,
   fontWeight: 500,
   bgcolor: 'var(--s-line-soft)',
   color: 'text.secondary',
@@ -63,7 +66,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
         p: 2.5,
       }}
     >
-      <Typography sx={{ fontSize: 16, fontWeight: 500, mb: 2 }}>{title}</Typography>
+      <Typography sx={{ ...FONT.title, fontWeight: 500, mb: 2 }}>{title}</Typography>
       {children}
     </Box>
   )
@@ -83,7 +86,7 @@ function Field({
   return (
     <Stack spacing={0.75} sx={{ minWidth: 220, ...sx }}>
       {label && (
-        <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>{label}</Typography>
+        <Typography sx={{ ...FONT.caption, color: 'text.secondary' }}>{label}</Typography>
       )}
       {children}
     </Stack>
@@ -125,23 +128,31 @@ export default function ComponentsShowcase() {
           }}
         >
           <Section title="Typography">
-            <Stack spacing={0.5}>
+            <Stack spacing={1.5}>
               {(
                 [
-                  ['h3', 'Heading · 28'],
-                  ['h4', 'Page title · 24'],
-                  ['h5', 'Heading · 20'],
-                  ['h6', 'Section · 18'],
-                  ['subtitle2', 'Subtitle · 16'],
-                  ['body1', 'Body · 16'],
-                  ['body2', 'Body (default) · 15'],
-                  ['button', 'Button · 14'],
-                  ['caption', 'Caption · 12'],
+                  ['display', 'Hero stat numbers'],
+                  ['pageTitle', 'Page heading'],
+                  ['title', 'Section title'],
+                  ['subtitle', 'Card / block title'],
+                  ['body', 'Body & tabs'],
+                  ['label', 'Emphasised label'],
+                  ['caption', 'Caption & descriptions'],
+                  ['micro', 'Tiny labels & status'],
+                  ['nano', 'Cramped sublabel'],
                 ] as const
-              ).map(([variant, label]) => (
-                <Typography key={variant} variant={variant} sx={{ display: 'block' }}>
-                  {label}
-                </Typography>
+              ).map(([role, sample]) => (
+                <Stack
+                  key={role}
+                  direction="row"
+                  spacing={2}
+                  sx={{ alignItems: 'baseline', justifyContent: 'space-between' }}
+                >
+                  <span style={{ ...FONT[role], color: 'var(--s-text)' }}>{sample}</span>
+                  <span style={{ ...FONT.micro, color: 'var(--s-dim)', whiteSpace: 'nowrap' }}>
+                    {role} · {FONT[role].fontSize}/{FONT[role].fontWeight}
+                  </span>
+                </Stack>
               ))}
             </Stack>
           </Section>
@@ -219,11 +230,33 @@ export default function ComponentsShowcase() {
             <Stack spacing={1.25}>
               {DS_LANGS.map((l) => (
                 <Stack key={l.tag} direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                  <Flag emoji={l.flag} size={18} />
+                  <Flag emoji={l.flag} size={ICON.md} />
                   <Typography variant="body2">{l.name}</Typography>
                   {l.base && <Chip label="base" size="small" />}
                 </Stack>
               ))}
+            </Stack>
+          </Section>
+
+          <Section title="Icon sizes">
+            <Stack direction="row" spacing={4} sx={{ alignItems: 'flex-end', mb: 2 }}>
+              {(Object.entries(ICON) as [keyof typeof ICON, number][]).map(([key, px]) => (
+                <Stack key={key} spacing={0.75} sx={{ alignItems: 'center' }}>
+                  <Flag emoji="🇩🇪" size={px} />
+                  <Typography sx={{ ...FONT.micro, color: 'text.secondary' }}>
+                    {key} · {px}
+                  </Typography>
+                </Stack>
+              ))}
+            </Stack>
+            <Divider sx={{ mb: 2 }} />
+            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+              <TipIcon type="edit" />
+              <TipIcon type="open" />
+              <TipIcon type="info" />
+              <Typography sx={{ ...FONT.micro, color: 'text.secondary' }}>
+                Action icons · {ICON.md}
+              </Typography>
             </Stack>
           </Section>
 
@@ -312,7 +345,7 @@ export default function ComponentsShowcase() {
               </Tooltip>
               <Tooltip arrow placement="top" title="Accuracy = approved / (approved + corrected)">
                 <Typography
-                  sx={{ fontSize: 13, color: 'text.secondary', textDecoration: 'underline dotted', cursor: 'help' }}
+                  sx={{ ...FONT.caption, color: 'text.secondary', textDecoration: 'underline dotted', cursor: 'help' }}
                 >
                   What is accuracy?
                 </Typography>
