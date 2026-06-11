@@ -7,6 +7,7 @@ import { registerDecoratorsRoute } from './routes/decorators'
 import { registerStatsRoute } from './routes/stats'
 import { registerMatchRoute } from './routes/match'
 import { registerAiContextRoute } from './routes/aiContext'
+import { registerContributorsRoute } from './routes/contributors'
 
 const app = express()
 
@@ -25,6 +26,7 @@ registerDecoratorsRoute(app)
 registerStatsRoute(app)
 registerMatchRoute(app)
 registerAiContextRoute(app)
+registerContributorsRoute(app)
 
 app.listen(SERVER_PORT, () => {
   console.log(`statistics server listening on http://localhost:${SERVER_PORT}`)

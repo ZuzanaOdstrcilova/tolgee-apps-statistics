@@ -2,22 +2,31 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import {
   Button,
-  Checkbox,
   Chip,
-  Divider,
   FormControl,
-  ListItemText,
   MenuItem,
   Select,
   Tooltip as MuiTooltip,
-  type SelectChangeEvent,
 } from '@mui/material'
 import { ThemeProvider } from '@mui/material/styles'
 import { createTolgeeApp, createTolgeeAppClient } from '@tolgee/apps-sdk/browser'
-import { buildTolgeeTheme } from '../../theme/tolgeeTheme'
+import { applyHostTheme, buildTolgeeTheme, tolgeeHostTheme } from '../../theme/tolgeeTheme'
 import { Flag } from '../../lib/flag'
-import { useMatchData, type BucketKey, type MatchResponse, type MatchTotals } from './matchData'
-import { PanelView, ImproveAiTips, type FullTipItem } from './matchView'
+import { LanguageSelect } from '../../lib/LanguageSelect'
+import {
+  useMatchData,
+  tolgeeProjectUrl,
+  useFocusKey,
+  type BucketKey,
+  type MatchResponse,
+  type MatchTotals,
+} from './matchData'
+import { ImproveAiTips, PanelView, type FullTipItem } from './matchView'
+import { ContributorDashboard } from '../contributor/Dashboard'
+import { ContributorPanel } from '../contributor/Panel'
+import { useContributors, MOCK_SCORED, MOCK_MEMBER } from '../contributor/data'
+import { FONT, SANS } from '../../theme/typography'
+import { ICON } from '../../theme/icons'
 
 // The dashboard filters use Tolgee-themed MUI components. The heavier
 // Design-kit showcase is still lazy-loaded so its extra components stay out
@@ -66,13 +75,15 @@ const COL = {
   tipText: 'var(--s-tip-text)',
 } as const
 
-const SANS =
-  "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif"
 
 // The mock "Tolgee" top bar only makes sense in the standalone local
 // preview — inside the Tolgee iframe the host already renders its own
 // chrome, so we'd be duplicating it. Embedded in Tolgee: hide it.
 const STANDALONE = window.parent === window
+
+// Demo Tolgee project used for deep-links in the standalone local preview
+// (where there's no real host/projectId) so the AI-edit links are testable.
+const DEMO_PROJECT_URL = 'https://apps.preview.tolgee.io/projects/2'
 
 const RANGES = [
   'Last minute',
@@ -83,7 +94,6 @@ const RANGES = [
   'Last 30 days',
   'All time',
 ]
-const ALL = '__all__'
 
 /** A project language. `flag` is Tolgee's per-language emoji; `base` marks
  *  the project base language (excluded from AI match-score charts). */
@@ -151,7 +161,7 @@ function useProjectLanguages(): { languages: Lang[]; projectId: number | undefin
 // Subtle/light chip shown next to the page title (mirrors the DS subtle chip).
 const SUBTLE_CHIP = {
   height: 22,
-  fontSize: 12,
+  ...FONT.micro,
   fontWeight: 500,
   bgcolor: 'var(--s-line-soft)',
   color: 'text.secondary',
@@ -405,12 +415,11 @@ function LangBarSkeletons({ langs }: { langs: Lang[] }) {
               display: 'flex',
               alignItems: 'center',
               gap: 6,
-              fontSize: 13,
-              fontWeight: 600,
+              ...FONT.label,
               color: COL.dim,
             }}
           >
-            <Flag emoji={l.flag} size={16} />
+            <Flag emoji={l.flag} size={ICON.sm} />
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {l.name}
             </span>
@@ -436,17 +445,16 @@ function NoAiRows({ langs }: { langs: { tag: string; name: string; flag: string 
               display: 'flex',
               alignItems: 'center',
               gap: 6,
-              fontSize: 13,
-              fontWeight: 600,
+              ...FONT.label,
               color: COL.dim,
             }}
           >
-            <Flag emoji={l.flag} size={16} />
+            <Flag emoji={l.flag} size={ICON.sm} />
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {l.name}
             </span>
           </div>
-          <span style={{ fontSize: 12, fontStyle: 'italic', color: COL.faint }}>
+          <span style={{ ...FONT.micro, fontStyle: 'italic', color: COL.faint }}>
             Not translated by AI
           </span>
         </div>
@@ -593,9 +601,9 @@ function LangTip({ active, payload }: TipProps) {
   return (
     <div style={{ ...S.tip, minWidth: 240 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700 }}>
-        <Flag emoji={row.flag} size={16} />
+        <Flag emoji={row.flag} size={ICON.sm} />
         <span style={{ flex: 1 }}>{row.lang}</span>
-        <span style={{ fontWeight: 400, opacity: 0.7, fontSize: 12 }}>
+        <span style={{ opacity: 0.7, ...FONT.micro }}>
           {row.total.toLocaleString('en-US')} words
         </span>
       </div>
@@ -687,12 +695,11 @@ function LangAxisTick({
           alignItems: 'center',
           gap: 6,
           height: 20,
-          fontSize: 13,
-          fontWeight: 600,
+          ...FONT.label,
           color: 'var(--s-text)',
         }}
       >
-        <Flag emoji={flags.get(name) ?? ''} size={16} />
+        <Flag emoji={flags.get(name) ?? ''} size={ICON.sm} />
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {name}
         </span>
@@ -705,7 +712,7 @@ function LangBars({ data }: { data: LangRow[] }) {
   const flags = new Map(data.map((r) => [r.lang, r.flag]))
   if (data.length === 0) {
     return (
-      <p className="dash-empty" style={{ color: COL.faint, fontSize: 13, padding: '12px 0' }}>
+      <p className="dash-empty" style={{ color: COL.faint, ...FONT.caption, padding: '12px 0' }}>
         No languages selected.
       </p>
     )
@@ -783,70 +790,11 @@ function Filters({
   onGenerate: () => void
   loading: boolean
 }) {
-  // Selectable languages first; the base language goes last (shown but
-  // disabled — no AI, excluded from charts; it's purely informative).
-  const ordered = [...languages].sort((a, b) => Number(a.base) - Number(b.base))
-  const selectableTags = languages.filter((l) => !l.base).map((l) => l.tag)
-  const allSelected = selectableTags.length > 0 && langs.length === selectableTags.length
-
-  const onLangs = (e: SelectChangeEvent<string[]>) => {
-    const value = e.target.value as string[]
-    if (value.includes(ALL)) {
-      // Tri-state "All languages": checked → clear to none, otherwise select all.
-      setLangs(allSelected ? [] : selectableTags)
-      return
-    }
-    setLangs(value.filter((v) => v !== ALL))
-  }
-
   return (
     <div style={S.filters}>
       <div style={S.filterFields}>
         <Field label="Languages">
-          <FormControl size="small" sx={{ minWidth: 240 }}>
-            <Select
-              multiple
-              displayEmpty
-              value={langs}
-              onChange={onLangs}
-              renderValue={(sel) => {
-                const s = sel as string[]
-                if (allSelected) return 'All languages'
-                if (s.length === 0) return 'None'
-                return s.join(', ') // tags only — flags live in the charts
-              }}
-            >
-              <MenuItem value={ALL}>
-                <Checkbox
-                  checked={allSelected}
-                  indeterminate={langs.length > 0 && !allSelected}
-                />
-                <ListItemText primary="All languages" />
-              </MenuItem>
-              <Divider />
-              {ordered.map((l) =>
-                l.base ? (
-                  <MenuItem key={l.tag} value={l.tag} disabled>
-                    <Checkbox checked={false} disabled />
-                    <ListItemText
-                      disableTypography
-                      primary={
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 15 }}>
-                          {l.name}
-                          <Chip label="base" size="small" />
-                        </span>
-                      }
-                    />
-                  </MenuItem>
-                ) : (
-                  <MenuItem key={l.tag} value={l.tag}>
-                    <Checkbox checked={langs.includes(l.tag)} />
-                    <ListItemText primary={l.name} />
-                  </MenuItem>
-                )
-              )}
-            </Select>
-          </FormControl>
+          <LanguageSelect languages={languages} value={langs} onChange={setLangs} minWidth={240} />
         </Field>
         <Field label="Period">
           <FormControl size="small" sx={{ minWidth: 180 }}>
@@ -868,11 +816,29 @@ function Filters({
 }
 
 export default function App() {
-  const [tab, setTab] = useState<'pretrans' | 'translator' | 'components' | 'panel'>('pretrans')
+  // The Statistics dashboard has two stat tabs: AI accuracy + Contributors.
+  // 'components' is the dev-only Design-kit view (standalone preview only).
+  const [tab, setTab] = useState<
+    'pretrans' | 'contributor' | 'panel' | 'contributorPanel' | 'components'
+  >('pretrans')
+  // "Design kit" lives next to the light/dark switch (a dev toggle), not in the
+  // content-tab row. Remember the last content tab so toggling it off returns there.
+  const prevTab = useRef<'pretrans' | 'contributor' | 'panel' | 'contributorPanel'>('pretrans')
+  const showcaseOn = tab === 'components'
+  const toggleDesignKit = () => {
+    if (showcaseOn) {
+      setTab(prevTab.current)
+    } else {
+      prevTab.current = tab // narrowed to a content tab here (showcaseOn is false)
+      setTab('components')
+    }
+  }
   const { languages, projectId } = useProjectLanguages()
+  // Contributors tab — real team from /api/contributors (empty in standalone).
+  const contributors = useContributors(projectId)
   const [langs, setLangs] = useState<string[]>([])
   const [range, setRange] = useState('Last 30 days')
-  // Period for the standalone "Panel" preview tab (cosmetic — mock data).
+  // Period for the standalone "AI panel" preview tab (cosmetic — dummy data).
   const [panelRange, setPanelRange] = useState('All time')
   // "Applied" filters = the query the shown statistics were generated for.
   // Editing langs/range does NOT refetch — the dashboard remembers the last
@@ -921,6 +887,9 @@ export default function App() {
     languageNotesTotal: number
     customPrompt: boolean
   } | null>(null)
+  // Refetch when the user returns from a Tolgee editor tab, so the card statuses
+  // reflect just-made edits.
+  const focusKey = useFocusKey()
   useEffect(() => {
     if (STANDALONE || projectId == null) return
     const ctrl = new AbortController()
@@ -931,30 +900,45 @@ export default function App() {
       })
       .catch(() => {})
     return () => ctrl.abort()
-  }, [projectId])
+  }, [projectId, focusKey])
   const aiTips = useMemo<FullTipItem[] | undefined>(() => {
-    if (!aiContext) return undefined
+    // Standalone preview has no real ai-context — show mock statuses but still
+    // deep-link to a demo Tolgee project so the links are testable locally too.
+    const ctx =
+      aiContext ??
+      (STANDALONE
+        ? { descriptionSet: true, languageNotesSet: 3, languageNotesTotal: 5, customPrompt: false }
+        : null)
+    if (!ctx) return undefined
+    // Deep-links to Tolgee's own AI editors (opened in a new tab). The apps
+    // host (referrer origin) serves the project pages too; projectId from ctx.
+    const base = tolgeeProjectUrl(projectId) || (STANDALONE ? DEMO_PROJECT_URL : '')
+    const ctxUrl = base && `${base}/ai/context-data`
+    const promptsUrl = base && `${base}/ai/prompts`
     return [
       {
         name: 'Project description',
         desc: 'Describe your project and brand so AI matches your tone, terminology and style.',
-        stat: aiContext.descriptionSet ? 'Set' : 'Not set yet',
-        icon: 'edit',
+        stat: ctx.descriptionSet ? 'Is set' : 'Not set yet',
+        icon: 'open',
+        href: ctxUrl || undefined,
       },
       {
         name: 'Notes for individual languages',
         desc: 'Set tone, formality and terminology per language.',
-        stat: `${aiContext.languageNotesSet} of ${aiContext.languageNotesTotal} set`,
+        stat: `${ctx.languageNotesSet} of ${ctx.languageNotesTotal} set`,
         icon: 'open',
+        href: ctxUrl || undefined,
       },
       {
         name: 'AI playground',
         desc: 'Fine-tune and test your translation prompt on real data.',
-        stat: aiContext.customPrompt ? 'Custom prompt' : 'Default prompt',
+        stat: ctx.customPrompt ? 'Custom prompt' : 'Default prompt',
         icon: 'open',
+        href: promptsUrl || undefined,
       },
     ]
-  }, [aiContext])
+  }, [aiContext, projectId])
 
   // The "Match score by language" chart shows the currently filtered
   // (selected) languages — mock in standalone, real /api/match data in Tolgee.
@@ -1000,21 +984,40 @@ export default function App() {
   // Every fetch failed and nothing resolved → surface the error, not a spinner.
   const showError = !STANDALONE && !loading && Boolean(error) && perLang.length === 0
 
-  // Theme mode. Default follows the OS (Tolgee's "system"); the Design-kit
-  // toggle can override it. Drives both the MUI theme and the CSS-variable
-  // chrome (via a data-theme attribute) so the whole app previews together.
+  // Theme. In the Tolgee iframe we follow the HOST theme via the SDK:
+  // applyTolgeeTheme exposes Tolgee's palette as --tg-color-* and onThemeChanged
+  // fires on load + every light/dark toggle. In the standalone preview there's
+  // no host, so we fall back to the OS + the Design-kit Light/Dark/System toggle.
   const [themeMode, setThemeMode] = useState<ThemeMode>('system')
   const [osMode, setOsMode] = useState<'light' | 'dark'>(prefersDark)
+  const [hostMode, setHostMode] = useState<'light' | 'dark'>('light')
   useEffect(() => {
+    if (!STANDALONE) return // iframe follows the host theme, not the OS
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
     const onChange = (e: MediaQueryListEvent) => setOsMode(e.matches ? 'dark' : 'light')
     mq.addEventListener('change', onChange)
     return () => mq.removeEventListener('change', onChange)
   }, [])
-  const mode = themeMode === 'system' ? osMode : themeMode
+  useEffect(() => {
+    if (STANDALONE) return
+    const app = createTolgeeApp()
+    const off = app.onThemeChanged((t) => {
+      if (!t) return // host may not send a theme (pre-alpha.7) — keep default
+      applyHostTheme(t) // sets --tg-color-*, [data-tg-theme]; keeps iframe transparent
+      setHostMode(t.mode)
+    })
+    return () => {
+      off()
+      app.dispose()
+    }
+  }, [])
+  const mode = STANDALONE ? (themeMode === 'system' ? osMode : themeMode) : hostMode
   const theme = useMemo(() => buildTolgeeTheme(mode), [mode])
   useEffect(() => {
     document.documentElement.dataset.theme = mode
+    // Standalone has no host, so drive the same --tg-color-* path with a mock
+    // palette (the iframe gets this from the host via onThemeChanged instead).
+    if (STANDALONE) applyHostTheme(tolgeeHostTheme(mode))
   }, [mode])
 
   // Inside the Tolgee iframe, ask the host to size the iframe to our
@@ -1056,35 +1059,53 @@ export default function App() {
         </header>
       )}
 
-      {STANDALONE && (
-        <div style={S.tabsbar}>
-          <div style={{ ...S.wrap, ...S.tabsrow }} role="tablist">
-            {(
-              [
-                ['pretrans', 'AI translation accuracy'],
-                ['translator', 'Translator Accuracy'],
-                ['components', 'Design kit'],
-                ['panel', 'Panel'],
-              ] as const
-            ).map(([id, label]) => {
-              const on = tab === id
-              return (
-                <button
-                  key={id}
-                  role="tab"
-                  aria-selected={on}
-                  onClick={() => setTab(id)}
-                  style={tabStyle(on)}
-                >
-                  {label}
-                  {on && <span style={S.tabUnderline} />}
-                </button>
-              )
-            })}
-            <ModeToggle value={themeMode} onChange={setThemeMode} />
-          </div>
+      <div style={S.tabsbar}>
+        <div style={{ ...S.wrap, ...S.tabsrow }} role="tablist">
+          {(
+            [
+              ['pretrans', 'AI accuracy'],
+              ['contributor', 'Contributors'],
+              // Panel previews — standalone local showcase only (in Tolgee the
+              // panels render in the translation editor, not the dashboard).
+              ...(STANDALONE
+                ? ([
+                    ['panel', 'AI panel'],
+                    ['contributorPanel', 'Contributor panel'],
+                  ] as const)
+                : []),
+            ] as const
+          ).map(([id, label]) => {
+            const on = tab === id
+            return (
+              <button
+                key={id}
+                role="tab"
+                aria-selected={on}
+                onClick={() => setTab(id)}
+                style={tabStyle(on)}
+              >
+                {label}
+                {on && <span style={S.tabUnderline} />}
+              </button>
+            )
+          })}
+          {/* Dev-only chrome: the design-kit + theme switch don't belong in the
+              real Tolgee iframe (the host owns light/dark). */}
+          {STANDALONE && (
+            <div style={S.rightControls}>
+              <button
+                type="button"
+                onClick={toggleDesignKit}
+                aria-pressed={showcaseOn}
+                style={designKitBtnStyle(showcaseOn)}
+              >
+                Design kit
+              </button>
+              <ModeToggle value={themeMode} onChange={setThemeMode} />
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       <main style={S.wrap}>
         {tab === 'pretrans' ? (
@@ -1108,10 +1129,10 @@ export default function App() {
 
             <div style={S.block}>
               <div style={{ marginBottom: 18 }}>
-                <div style={{ fontSize: 15, fontWeight: 600, color: COL.text }}>
+                <div style={{ ...FONT.subtitle, color: COL.text }}>
                   AI translations approved by reviewers
                 </div>
-                <div style={{ fontSize: 12.5, color: COL.dim, marginTop: 3, lineHeight: 1.5 }}>
+                <div style={{ ...FONT.caption, color: COL.dim, marginTop: 3, lineHeight: 1.5 }}>
                   Totals for the {selectedCount} selected{' '}
                   {selectedCount === 1 ? 'language' : 'languages'}.{' '}
                   <b style={{ color: COL.text }}>Match</b> compares the text AI produced with the
@@ -1129,7 +1150,7 @@ export default function App() {
                       borderRadius: 12,
                       padding: '20px 22px',
                       color: COL.dim,
-                      fontSize: 13,
+                      ...FONT.caption,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
@@ -1162,7 +1183,7 @@ export default function App() {
               {!loading && !showError && langData.length === 0 && noAiLangs.length === 0 && (
                 <p
                   className="dash-empty"
-                  style={{ color: COL.faint, fontSize: 13, padding: '12px 0' }}
+                  style={{ color: COL.faint, ...FONT.caption, padding: '12px 0' }}
                 >
                   No AI-translated reviewed content for the selected languages and period.
                 </p>
@@ -1191,9 +1212,10 @@ export default function App() {
             <ComponentsShowcase />
           </Suspense>
         ) : tab === 'panel' ? (
-          // Preview of the translation tools panel (real module: toolsPanel),
-          // scoped to a single language over all time. Mock data here.
-          <section style={{ maxWidth: 380, border: `1px solid ${COL.line}`, borderRadius: 12, marginTop: 8 }}>
+          // AI panel preview — standalone showcase, dummy data.
+          <section
+            style={{ maxWidth: 380, border: `1px solid ${COL.line}`, borderRadius: 12, marginTop: 8 }}
+          >
             <PanelView
               flag="🇨🇿"
               name="Czech"
@@ -1205,12 +1227,27 @@ export default function App() {
               reviewedScore={62.8}
             />
           </section>
-        ) : (
-          <section style={S.titlerow}>
-            <h1 style={S.h1}>
-              Translator accuracy <span style={S.h1dim}>· coming soon</span>
-            </h1>
+        ) : tab === 'contributorPanel' ? (
+          // Contributor panel preview — standalone showcase, dummy member.
+          <section
+            style={{
+              maxWidth: 420,
+              border: `1px solid ${COL.line}`,
+              borderRadius: 12,
+              marginTop: 8,
+              background: COL.surface,
+            }}
+          >
+            <ContributorPanel member={MOCK_MEMBER} />
           </section>
+        ) : (
+          // Contributors stat — dummy team in standalone, real backend in Tolgee.
+          <ContributorDashboard
+            team={STANDALONE ? MOCK_SCORED : contributors.team}
+            languages={languages}
+            loading={STANDALONE ? false : contributors.loading}
+            empty={STANDALONE ? false : contributors.empty}
+          />
         )}
       </main>
     </div>
@@ -1248,13 +1285,28 @@ function ModeToggle({
   )
 }
 
+// "Design kit" toggle — sits beside the light/dark switch (a dev control),
+// outlined when off, accent-filled when the showcase is open.
+const designKitBtnStyle = (on: boolean): CSSProperties => ({
+  appearance: 'none',
+  border: `1px solid ${on ? COL.accent : COL.line}`,
+  background: on ? COL.accent : 'transparent',
+  color: on ? '#fff' : COL.dim,
+  fontFamily: SANS,
+  ...FONT.micro,
+  fontWeight: 600,
+  padding: '6px 12px',
+  borderRadius: 8,
+  cursor: 'pointer',
+})
+
 const modeBtnStyle = (on: boolean): CSSProperties => ({
   appearance: 'none',
   border: 'none',
   background: on ? COL.accent : 'transparent',
   color: on ? '#fff' : COL.dim,
   fontFamily: SANS,
-  fontSize: 12,
+  ...FONT.micro,
   fontWeight: 600,
   padding: '5px 12px',
   borderRadius: 7,
@@ -1268,7 +1320,7 @@ const tabStyle = (on: boolean): CSSProperties => ({
   border: 'none',
   color: on ? COL.accent : COL.dim,
   fontFamily: SANS,
-  fontSize: 14,
+  ...FONT.body,
   fontWeight: 500,
   letterSpacing: '0.4px',
   textTransform: 'uppercase',
@@ -1283,8 +1335,8 @@ const S: Record<string, CSSProperties> = {
   header: { background: 'transparent' },
   topbar: { display: 'flex', alignItems: 'center', gap: 12, height: 60 },
   logo: {
+    ...FONT.title,
     fontWeight: 700,
-    fontSize: 16,
     letterSpacing: '-0.02em',
     display: 'flex',
     alignItems: 'center',
@@ -1297,12 +1349,12 @@ const S: Record<string, CSSProperties> = {
     background: 'linear-gradient(135deg,#4b53d6,#11b886)',
     display: 'inline-block',
   },
-  crumb: { fontSize: 16, fontWeight: 600 },
+  crumb: { ...FONT.title },
 
   tabsbar: { background: 'transparent' },
   tabsrow: { display: 'flex', alignItems: 'center', gap: 4, height: 52 },
+  rightControls: { marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 },
   modeToggle: {
-    marginLeft: 'auto',
     display: 'flex',
     gap: 2,
     padding: 3,
@@ -1325,14 +1377,14 @@ const S: Record<string, CSSProperties> = {
     justifyContent: 'space-between',
     padding: '26px 0 18px',
   },
-  h1: { fontSize: 24, fontWeight: 400, color: COL.text, margin: 0 },
+  h1: { ...FONT.pageTitle, color: COL.text, margin: 0 },
   h1dim: { color: COL.faint, fontWeight: 500 },
   btnPrimary: {
     background: COL.accent,
     border: `1px solid ${COL.accent}`,
     color: '#fff',
     fontFamily: SANS,
-    fontSize: 13,
+    ...FONT.caption,
     fontWeight: 500,
     padding: '8px 14px',
     borderRadius: 8,
@@ -1351,14 +1403,14 @@ const S: Record<string, CSSProperties> = {
     justifyContent: 'space-between',
   },
   filterFields: { display: 'flex', gap: 22, alignItems: 'flex-end', flexWrap: 'wrap' },
-  fieldLabel: { fontSize: 12, fontWeight: 600, color: COL.dim },
+  fieldLabel: { ...FONT.micro, fontWeight: 600, color: COL.dim },
   select: {
     appearance: 'none',
     border: `1px solid ${COL.line}`,
     background: COL.surface,
     borderRadius: 8,
     fontFamily: SANS,
-    fontSize: 13,
+    ...FONT.caption,
     color: COL.text,
     padding: '8px 30px 8px 12px',
     minWidth: 180,
@@ -1380,8 +1432,8 @@ const S: Record<string, CSSProperties> = {
     marginBottom: 22,
   },
   tipsHead: { display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 14 },
-  tipsTitle: { color: COL.text, fontSize: 15, fontWeight: 600 },
-  tipsHint: { color: COL.dim, fontSize: 12.5 },
+  tipsTitle: { color: COL.text, ...FONT.subtitle },
+  tipsHint: { color: COL.dim, ...FONT.caption },
   tipsRow: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 },
   tipCard: {
     display: 'flex',
@@ -1394,17 +1446,17 @@ const S: Record<string, CSSProperties> = {
     textDecoration: 'none',
   },
   tipHead: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  tipName: { color: COL.accent, fontSize: 13.5, fontWeight: 600 },
-  tipDesc: { color: COL.dim, fontSize: 12.5, lineHeight: 1.4 },
+  tipName: { color: COL.accent, ...FONT.label },
+  tipDesc: { color: COL.dim, ...FONT.caption, lineHeight: 1.4 },
   tipStat: {
     color: COL.faint,
-    fontSize: 11.5,
+    ...FONT.micro,
     fontWeight: 500,
     marginTop: 6,
     paddingTop: 8,
     borderTop: `1px solid ${COL.line}`,
   },
-  sub: { fontSize: 13.5, color: COL.dim, fontWeight: 600, marginBottom: 14 },
+  sub: { ...FONT.label, color: COL.dim, marginBottom: 14 },
 
   metricrow: {
     display: 'grid',
@@ -1434,11 +1486,10 @@ const S: Record<string, CSSProperties> = {
     inset: 0,
     display: 'grid',
     placeItems: 'center',
-    fontSize: 22,
-    fontWeight: 650,
+    ...FONT.display,
     color: COL.text,
   },
-  gaugeLabel: { fontSize: 12, color: COL.dim },
+  gaugeLabel: { ...FONT.micro, color: COL.dim },
 
   donutCenter: {
     position: 'absolute',
@@ -1451,11 +1502,11 @@ const S: Record<string, CSSProperties> = {
     textAlign: 'center',
     pointerEvents: 'none',
   },
-  donutCenterV: { fontSize: 22, fontWeight: 650, color: COL.text, lineHeight: 1 },
-  donutCenterL: { fontSize: 10, color: COL.faint, marginTop: 3 },
+  donutCenterV: { ...FONT.display, color: COL.text, lineHeight: 1 },
+  donutCenterL: { ...FONT.nano, color: COL.faint, marginTop: 3 },
   donutLegend: { display: 'flex', flexDirection: 'column', gap: 9 },
 
-  lg: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: COL.dim },
+  lg: { display: 'flex', alignItems: 'center', gap: 8, ...FONT.caption, color: COL.dim },
   dot: { width: 9, height: 9, borderRadius: '50%', flex: 'none', display: 'inline-block' },
 
   chartLegend: {
@@ -1464,7 +1515,7 @@ const S: Record<string, CSSProperties> = {
     flexWrap: 'wrap',
     justifyContent: 'center',
     marginTop: 16,
-    fontSize: 12.5,
+    ...FONT.caption,
     color: COL.dim,
   },
   lgInline: { display: 'flex', alignItems: 'center', gap: 7 },
@@ -1473,7 +1524,7 @@ const S: Record<string, CSSProperties> = {
   tip: {
     background: COL.tipBg,
     color: COL.tipText,
-    fontSize: 12.5,
+    ...FONT.caption,
     padding: '12px 14px',
     borderRadius: 11,
     lineHeight: 1.5,

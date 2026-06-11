@@ -1,4 +1,24 @@
 import { createTheme, type Theme } from '@mui/material/styles'
+import { applyTolgeeTheme, type TolgeeAppTheme } from '@tolgee/apps-sdk/browser'
+import { FONT } from './typography'
+
+const IN_IFRAME = typeof window !== 'undefined' && window.parent !== window
+
+/**
+ * Apply the host palette, but keep the iframe background TRANSPARENT.
+ *
+ * `applyTolgeeTheme` sets `color-scheme: dark` on <html>, which makes the
+ * browser paint an OPAQUE dark backdrop across the whole iframe — that's the
+ * stray dark panel behind our content in dark mode, defeating the transparent
+ * body that should let the host background show through. Our MUI theme and the
+ * `--tg-color-*` tokens already style every surface for the mode, so we don't
+ * need the UA's dark canvas: reset `color-scheme` inside the iframe. Standalone
+ * keeps it (its root paints an explicit canvas, so there's no see-through).
+ */
+export function applyHostTheme(theme: TolgeeAppTheme): void {
+  applyTolgeeTheme(theme)
+  if (IN_IFRAME) document.documentElement.style.colorScheme = 'normal'
+}
 
 // MUI theme mirroring Tolgee's real palette and component styling
 // (tolgee-platform: webapp/src/colors.tsx + ThemeProvider.tsx), so our MUI
@@ -57,7 +77,11 @@ export function buildTolgeeTheme(mode: Mode): Theme {
     typography: {
       fontFamily: FONT_STACK,
       htmlFontSize: 15,
-      button: { fontSize: 14, fontWeight: 500 },
+      // Shared roles from the FONT scale (src/theme/typography.ts) so MUI
+      // <Typography> and the inline data-viz views agree. Other MUI variants
+      // keep their default scale (only the dev showcase renders them).
+      button: { ...FONT.body, fontWeight: 500 },
+      caption: { ...FONT.caption },
     },
     components: {
       // Tolgee's MuiButton override: square-ish 3px radius, 40px tall.
@@ -98,4 +122,27 @@ export function buildTolgeeTheme(mode: Mode): Theme {
       },
     },
   })
+}
+
+/**
+ * The theme the Tolgee host would post for a given mode, mirrored from our
+ * PALETTE. Used only by the STANDALONE preview so it drives the SAME
+ * `applyTolgeeTheme` / `--tg-color-*` path as the real iframe (instead of only
+ * the fallback hex), making dark/light faithfully previewable + verifiable.
+ */
+export const tolgeeHostTheme = (mode: Mode): TolgeeAppTheme => {
+  const p = PALETTE[mode]
+  return {
+    mode,
+    colors: {
+      background: p.bgDefault,
+      backgroundPaper: p.bgPaper,
+      text: p.text,
+      textSecondary: p.textSecondary,
+      primary: p.primary,
+      primaryContrast: '#ffffff',
+      divider: p.divider,
+      error: mode === 'dark' ? '#ff6f6a' : '#e6453f',
+    },
+  }
 }
