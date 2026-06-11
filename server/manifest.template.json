@@ -7,7 +7,8 @@
   "scopes": [
     "translations.view",
     "keys.view",
-    "activity.view"
+    "activity.view",
+    "prompts.view"
   ],
   "modules": {
     "project-dashboard-page": [

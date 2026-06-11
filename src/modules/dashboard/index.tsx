@@ -17,6 +17,7 @@ import { createTolgeeApp, createTolgeeAppClient } from '@tolgee/apps-sdk/browser
 import { buildTolgeeTheme } from '../../theme/tolgeeTheme'
 import { Flag } from '../../lib/flag'
 import { useMatchData, type BucketKey, type MatchResponse, type MatchTotals } from './matchData'
+import { PanelView, ImproveAiTips, type FullTipItem } from './matchView'
 
 // The dashboard filters use Tolgee-themed MUI components. The heavier
 // Design-kit showcase is still lazy-loaded so its extra components stay out
@@ -791,12 +792,11 @@ function Filters({
   const onLangs = (e: SelectChangeEvent<string[]>) => {
     const value = e.target.value as string[]
     if (value.includes(ALL)) {
-      setLangs(selectableTags) // "All languages" selects every non-base language
+      // Tri-state "All languages": checked → clear to none, otherwise select all.
+      setLangs(allSelected ? [] : selectableTags)
       return
     }
-    const next = value.filter((v) => v !== ALL)
-    if (next.length === 0) return // rule: at least one language must stay selected
-    setLangs(next)
+    setLangs(value.filter((v) => v !== ALL))
   }
 
   return (
@@ -867,39 +867,13 @@ function Filters({
   )
 }
 
-function TipIcon({ type }: { type: 'open' | 'edit' }) {
-  const p = {
-    width: 15,
-    height: 15,
-    viewBox: '0 0 24 24',
-    fill: 'none',
-    stroke: COL.faint,
-    strokeWidth: 2,
-    strokeLinecap: 'round' as const,
-    strokeLinejoin: 'round' as const,
-  }
-  if (type === 'open') {
-    return (
-      <svg {...p}>
-        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-        <path d="M15 3h6v6" />
-        <path d="M10 14 21 3" />
-      </svg>
-    )
-  }
-  return (
-    <svg {...p}>
-      <path d="M12 20h9" />
-      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
-    </svg>
-  )
-}
-
 export default function App() {
-  const [tab, setTab] = useState<'pretrans' | 'translator' | 'components'>('pretrans')
+  const [tab, setTab] = useState<'pretrans' | 'translator' | 'components' | 'panel'>('pretrans')
   const { languages, projectId } = useProjectLanguages()
   const [langs, setLangs] = useState<string[]>([])
   const [range, setRange] = useState('Last 30 days')
+  // Period for the standalone "Panel" preview tab (cosmetic — mock data).
+  const [panelRange, setPanelRange] = useState('All time')
   // "Applied" filters = the query the shown statistics were generated for.
   // Editing langs/range does NOT refetch — the dashboard remembers the last
   // generated stats until the user clicks Generate.
@@ -938,6 +912,49 @@ export default function App() {
     setGeneratedAt(Date.now())
   }, [genKey])
   const now = useNow()
+
+  // AI-context status for the "Improve AI accuracy" cards (real /api/ai-context
+  // in the iframe; standalone keeps the built-in mock).
+  const [aiContext, setAiContext] = useState<{
+    descriptionSet: boolean
+    languageNotesSet: number
+    languageNotesTotal: number
+    customPrompt: boolean
+  } | null>(null)
+  useEffect(() => {
+    if (STANDALONE || projectId == null) return
+    const ctrl = new AbortController()
+    fetch(`/api/ai-context?projectId=${projectId}`, { signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && d.ok) setAiContext(d)
+      })
+      .catch(() => {})
+    return () => ctrl.abort()
+  }, [projectId])
+  const aiTips = useMemo<FullTipItem[] | undefined>(() => {
+    if (!aiContext) return undefined
+    return [
+      {
+        name: 'Project description',
+        desc: 'Describe your project and brand so AI matches your tone, terminology and style.',
+        stat: aiContext.descriptionSet ? 'Set' : 'Not set yet',
+        icon: 'edit',
+      },
+      {
+        name: 'Notes for individual languages',
+        desc: 'Set tone, formality and terminology per language.',
+        stat: `${aiContext.languageNotesSet} of ${aiContext.languageNotesTotal} set`,
+        icon: 'open',
+      },
+      {
+        name: 'AI playground',
+        desc: 'Fine-tune and test your translation prompt on real data.',
+        stat: aiContext.customPrompt ? 'Custom prompt' : 'Default prompt',
+        icon: 'open',
+      },
+    ]
+  }, [aiContext])
 
   // The "Match score by language" chart shows the currently filtered
   // (selected) languages — mock in standalone, real /api/match data in Tolgee.
@@ -1047,6 +1064,7 @@ export default function App() {
                 ['pretrans', 'AI translation accuracy'],
                 ['translator', 'Translator Accuracy'],
                 ['components', 'Design kit'],
+                ['panel', 'Panel'],
               ] as const
             ).map(([id, label]) => {
               const on = tab === id
@@ -1160,45 +1178,7 @@ export default function App() {
               </div>
             </div>
 
-            <div style={S.tips}>
-              <div style={S.tipsHead}>
-                <span style={S.tipsTitle}>Improve AI accuracy</span>
-                <span style={S.tipsHint}>
-                  Better context means higher match scores and less manual editing.
-                </span>
-              </div>
-              <div style={S.tipsRow}>
-                <a href="#" style={S.tipCard}>
-                  <span style={S.tipHead}>
-                    <span style={S.tipName}>Project description</span>
-                    <TipIcon type="edit" />
-                  </span>
-                  <span style={S.tipDesc}>
-                    Describe your project and brand so AI matches your tone, terminology and
-                    style.
-                  </span>
-                  <span style={S.tipStat}>Set · updated 3 days ago</span>
-                </a>
-                <a href="#" style={S.tipCard}>
-                  <span style={S.tipHead}>
-                    <span style={S.tipName}>Notes for individual languages</span>
-                    <TipIcon type="open" />
-                  </span>
-                  <span style={S.tipDesc}>Set tone, formality and terminology per language.</span>
-                  <span style={S.tipStat}>3 of 5 languages set · updated 12 Jan</span>
-                </a>
-                <a href="#" style={S.tipCard}>
-                  <span style={S.tipHead}>
-                    <span style={S.tipName}>AI playground</span>
-                    <TipIcon type="open" />
-                  </span>
-                  <span style={S.tipDesc}>
-                    Fine-tune and test your translation prompt on real data.
-                  </span>
-                  <span style={S.tipStat}>Default prompt · last run 5 days ago</span>
-                </a>
-              </div>
-            </div>
+            <ImproveAiTips tips={aiTips} />
           </section>
         ) : tab === 'components' ? (
           <Suspense
@@ -1210,6 +1190,21 @@ export default function App() {
           >
             <ComponentsShowcase />
           </Suspense>
+        ) : tab === 'panel' ? (
+          // Preview of the translation tools panel (real module: toolsPanel),
+          // scoped to a single language over all time. Mock data here.
+          <section style={{ maxWidth: 380, border: `1px solid ${COL.line}`, borderRadius: 12, marginTop: 8 }}>
+            <PanelView
+              flag="🇨🇿"
+              name="Czech"
+              range={panelRange}
+              onRangeChange={setPanelRange}
+              donutData={DONUT}
+              notReviewedWords={436}
+              avgScore={81.7}
+              reviewedScore={62.8}
+            />
+          </section>
         ) : (
           <section style={S.titlerow}>
             <h1 style={S.h1}>

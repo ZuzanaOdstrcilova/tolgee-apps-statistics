@@ -6,6 +6,7 @@ import { registerWebhookRoute } from './routes/webhook'
 import { registerDecoratorsRoute } from './routes/decorators'
 import { registerStatsRoute } from './routes/stats'
 import { registerMatchRoute } from './routes/match'
+import { registerAiContextRoute } from './routes/aiContext'
 
 const app = express()
 
@@ -23,6 +24,7 @@ registerManifestRoute(app)
 registerDecoratorsRoute(app)
 registerStatsRoute(app)
 registerMatchRoute(app)
+registerAiContextRoute(app)
 
 app.listen(SERVER_PORT, () => {
   console.log(`statistics server listening on http://localhost:${SERVER_PORT}`)

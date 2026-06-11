@@ -57,14 +57,17 @@ type RangeParam = 'last1min' | 'last5min' | 'last1h' | 'today' | 'last7' | 'last
 
 /** UI period label → /api/match `range` query value. */
 export const RANGE_TO_PARAM: Record<string, RangeParam> = {
+  'All time': 'all',
   'Last minute': 'last1min',
   'Last 5 minutes': 'last5min',
   'Last hour': 'last1h',
   Today: 'today',
   'Last week': 'last7',
   'Last 30 days': 'last30',
-  'All time': 'all',
 }
+
+/** Period labels in display order (for the dashboard + panel pickers). */
+export const RANGE_LABELS = Object.keys(RANGE_TO_PARAM)
 
 const zeroBuckets = (): Record<BucketKey, BucketAgg> => ({
   b100: { words: 0, keys: 0, langs: 0 },

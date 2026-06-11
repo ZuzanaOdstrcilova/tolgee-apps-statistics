@@ -223,3 +223,44 @@ export const fetchHistory = async (
   )
   return json._embedded?.revisions ?? []
 }
+
+// ---- AI context (for the "Improve AI accuracy" panel links) ---------------
+
+export type AiContext = {
+  /** Project-level AI description set? */
+  descriptionSet: boolean
+  /** Languages with an AI note set, and total (non-base) languages. */
+  languageNotesSet: number
+  languageNotesTotal: number
+  /** A custom (saved) AI prompt exists (vs. the default). */
+  customPrompt: boolean
+}
+
+/** Reads the project's AI-context settings (needs the `prompts.view` scope).
+ *  Each call is defensive — a failure for one part degrades to "not set". */
+export const fetchAiContext = async (projectId: number): Promise<AiContext> => {
+  const safe = async <T>(path: string): Promise<T | null> => {
+    try {
+      return await tolgeeFetch<T>(path)
+    } catch {
+      return null
+    }
+  }
+  const [proj, langCust, prompts, langs] = await Promise.all([
+    safe<{ description?: string }>(`/v2/projects/${projectId}/ai-prompt-customization`),
+    safe<{ _embedded?: { promptCustomizations?: { description?: string }[] } }>(
+      `/v2/projects/${projectId}/language-ai-prompt-customizations`
+    ),
+    safe<{ _embedded?: { prompts?: unknown[] } }>(`/v2/projects/${projectId}/prompts`),
+    getProjectLanguages(projectId).catch(() => null),
+  ])
+  const notes = langCust?._embedded?.promptCustomizations ?? []
+  const notesSet = notes.filter((n) => Boolean(n.description && n.description.trim())).length
+  const total = langs ? langs.list.filter((l) => !l.base).length : notes.length
+  return {
+    descriptionSet: Boolean(proj?.description && proj.description.trim()),
+    languageNotesSet: notesSet,
+    languageNotesTotal: total,
+    customPrompt: (prompts?._embedded?.prompts ?? []).length > 0,
+  }
+}

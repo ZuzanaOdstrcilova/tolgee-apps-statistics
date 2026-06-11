@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react'
-import { Tooltip as MuiTooltip } from '@mui/material'
+import { FormControl, MenuItem, Select, Tooltip as MuiTooltip } from '@mui/material'
 import { Flag } from '../../lib/flag'
+import { RANGE_LABELS } from './matchData'
 import {
   PieChart,
   Pie,
@@ -342,15 +343,62 @@ export function Donut({
 
 /** Bucket legend: name (bold) + word count. */
 export function DonutLegend({ data }: { data: DonutSlice[] }) {
+  // Hide buckets with no words (e.g. a language with no 89-80% matches).
+  const shown = data.filter((d) => d.value > 0)
   return (
-    <div style={M.donutLegend}>
-      {data.map((d, i) => (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '9px 20px' }}>
+      {shown.map((d, i) => (
         <span key={i} style={M.lg}>
           <span style={{ ...M.dot, background: d.color }} />
-          <b style={{ flex: 1, color: COL.text }}>{d.name}</b>
+          <span style={{ flex: 1, color: COL.text }}>{d.name}</span>
           <span style={{ color: COL.dim }}>{d.value} words</span>
         </span>
       ))}
+    </div>
+  )
+}
+
+/** A single horizontal stacked bar (the per-language chart, one row): score
+ *  buckets + "not reviewed", proportional widths, rounded outer ends, subtle
+ *  left→right gradient — matching the dashboard's "Match score by language". */
+export function MatchBar({
+  data,
+  notReviewedWords,
+}: {
+  data: DonutSlice[]
+  notReviewedWords: number
+}) {
+  const segs = [
+    ...data.map((d) => ({ value: d.value, color: d.color })),
+    { value: notReviewedWords, color: COL.notReviewed },
+  ].filter((s) => s.value > 0)
+  const total = segs.reduce((s, x) => s + x.value, 0)
+  if (total === 0) {
+    return <div style={{ fontSize: 12, fontStyle: 'italic', color: COL.faint }}>No AI data yet</div>
+  }
+  return (
+    <div style={{ display: 'flex', height: 16, gap: 1.5, width: '100%' }}>
+      {segs.map((s, i) => {
+        const first = i === 0
+        const last = i === segs.length - 1
+        return (
+          <div
+            key={i}
+            style={{
+              flexGrow: s.value,
+              flexBasis: 0,
+              minWidth: 3,
+              background: s.color.startsWith('#')
+                ? `linear-gradient(90deg, ${s.color}, ${lighten(s.color, 0.3)})`
+                : s.color,
+              borderTopLeftRadius: first ? 6 : 0,
+              borderBottomLeftRadius: first ? 6 : 0,
+              borderTopRightRadius: last ? 6 : 0,
+              borderBottomRightRadius: last ? 6 : 0,
+            }}
+          />
+        )
+      })}
     </div>
   )
 }
@@ -370,7 +418,7 @@ export function MatchDonut(props: {
   )
 }
 
-export function TipIcon({ type }: { type: 'open' | 'edit' }) {
+export function TipIcon({ type }: { type: 'open' | 'edit' | 'info' }) {
   const p = {
     width: 15,
     height: 15,
@@ -380,6 +428,15 @@ export function TipIcon({ type }: { type: 'open' | 'edit' }) {
     strokeWidth: 2,
     strokeLinecap: 'round' as const,
     strokeLinejoin: 'round' as const,
+  }
+  if (type === 'info') {
+    return (
+      <svg {...p}>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 16v-4" />
+        <path d="M12 8h.01" />
+      </svg>
+    )
   }
   if (type === 'open') {
     return (
@@ -398,29 +455,80 @@ export function TipIcon({ type }: { type: 'open' | 'edit' }) {
   )
 }
 
-const TIPS: { name: string; desc: string; stat: string; icon: 'open' | 'edit' }[] = [
+// `short` is the compact right-aligned status used by the panel's simplified tips.
+const TIPS: {
+  name: string
+  desc: string
+  stat: string
+  short: string
+  icon: 'open' | 'edit'
+}[] = [
   {
     name: 'Project description',
     desc: 'Describe your project and brand so AI matches your tone, terminology and style.',
     stat: 'Set · updated 3 days ago',
+    short: 'Set',
     icon: 'edit',
   },
   {
-    name: 'Notes for individual languages',
+    name: 'Language notes',
     desc: 'Set tone, formality and terminology per language.',
     stat: '3 of 5 languages set · updated 12 Jan',
-    icon: 'open',
+    short: '3 of 5 set',
+    icon: 'edit',
   },
   {
     name: 'AI playground',
     desc: 'Fine-tune and test your translation prompt on real data.',
     stat: 'Default prompt · last run 5 days ago',
+    short: 'Default prompt',
     icon: 'open',
   },
 ]
 
-/** "Improve AI accuracy" links. `cols` = how many across (panel uses 1). */
-export function ImproveAiTips({ cols = 3 }: { cols?: number }) {
+/** Simplified "Improve AI accuracy" — compact rows (name + short status +
+ *  icon), no descriptions or cards. Used in the narrow tools panel. */
+export type TipItem = { name: string; stat: string; icon: 'open' | 'edit' | 'info' }
+
+export function ImproveAiTipsCompact({ tips = TIPS }: { tips?: TipItem[] }) {
+  return (
+    <div style={{ marginTop: 6, borderTop: `1px solid ${COL.line}`, paddingTop: 16 }}>
+      <div style={{ ...M.tipsTitle, marginBottom: 4 }}>Improve AI accuracy</div>
+      {tips.map((t, i) => (
+        <a
+          key={t.name}
+          href="#"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 14,
+            padding: '11px 0',
+            borderTop: i === 0 ? 'none' : `1px solid ${COL.line}`,
+            textDecoration: 'none',
+          }}
+        >
+          <div style={{ flex: 1 }}>
+            <div style={{ color: COL.text, fontSize: 13.5, fontWeight: 500 }}>{t.name}</div>
+            <div style={{ color: COL.dim, fontSize: 11.5, marginTop: 2 }}>{t.stat}</div>
+          </div>
+          <TipIcon type={t.icon} />
+          <TipIcon type="info" />
+        </a>
+      ))}
+    </div>
+  )
+}
+
+export type FullTipItem = {
+  name: string
+  desc: string
+  stat: string
+  icon: 'open' | 'edit' | 'info'
+}
+
+/** "Improve AI accuracy" cards. `cols` = how many across; `tips` defaults to
+ *  the built-in mock (pass real ones from /api/ai-context). */
+export function ImproveAiTips({ cols = 3, tips = TIPS }: { cols?: number; tips?: FullTipItem[] }) {
   return (
     <div style={M.tips}>
       <div style={M.tipsHead}>
@@ -430,7 +538,7 @@ export function ImproveAiTips({ cols = 3 }: { cols?: number }) {
         </span>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 14 }}>
-        {TIPS.map((t) => (
+        {tips.map((t) => (
           <a key={t.name} href="#" style={M.tipCard}>
             <span style={M.tipHead}>
               <span style={M.tipName}>{t.name}</span>
@@ -451,24 +559,25 @@ export function ImproveAiTips({ cols = 3 }: { cols?: number }) {
 export function PanelView({
   flag,
   name,
-  scope,
+  range,
+  onRangeChange,
   donutData,
-  totalWords,
-  totalKeys,
-  langCount,
+  notReviewedWords,
   avgScore,
   reviewedScore,
+  tips,
 }: {
   flag: string
   name: string
-  /** e.g. "All time" — the period the panel data covers. */
-  scope: string
+  /** Selected period (label) — the filter applies immediately on change. */
+  range: string
+  onRangeChange: (r: string) => void
   donutData: DonutSlice[]
-  totalWords: number
-  totalKeys: number
-  langCount: number
+  notReviewedWords: number
   avgScore: number
   reviewedScore: number
+  /** "Improve AI accuracy" items; omitted → built-in mock. */
+  tips?: TipItem[]
 }) {
   return (
     <div
@@ -482,24 +591,100 @@ export function PanelView({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Flag emoji={flag} size={18} />
-        <span style={{ fontSize: 16, fontWeight: 600 }}>{name}</span>
-        <span style={{ marginLeft: 'auto', fontSize: 12, color: COL.dim }}>{scope}</span>
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'center' }}>
-        <Donut
-          data={donutData}
-          totalWords={totalWords}
-          totalKeys={totalKeys}
-          langCount={langCount}
-        />
+        <span
+          style={{
+            fontSize: 14,
+            fontWeight: 600,
+            textTransform: 'uppercase',
+            letterSpacing: '0.4px',
+          }}
+        >
+          AI accuracy
+        </span>
+        <span title={name} style={{ display: 'inline-flex' }}>
+          <Flag emoji={flag} size={18} />
+        </span>
+        <FormControl size="small" sx={{ marginLeft: 'auto', minWidth: 140 }}>
+          <Select
+            value={range}
+            onChange={(e) => onRangeChange(e.target.value)}
+            // The panel is an auto-resized iframe; MUI's scroll-lock mutates
+            // <body> on open, which retriggers the ResizeObserver and makes the
+            // menu jump. Disable it and cap the menu height.
+            MenuProps={{
+              disableScrollLock: true,
+              slotProps: { paper: { style: { maxHeight: 320 } } },
+            }}
+          >
+            {RANGE_LABELS.map((o) => (
+              <MenuItem key={o} value={o}>
+                {o}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <Gauge value={avgScore} label="Avg match score" color={scoreColor(avgScore)} />
-        <Gauge value={reviewedScore} label="Reviewed" color={COL.c100} />
+        <div
+          style={{
+            background: COL.lineSoft,
+            borderRadius: 12,
+            padding: '14px 16px',
+            textAlign: 'center',
+          }}
+        >
+          <div style={{ fontSize: 26, fontWeight: 700, color: scoreColor(avgScore) }}>
+            {avgScore}%
+          </div>
+          <div style={{ fontSize: 12, color: COL.dim, marginTop: 2 }}>Avg match score</div>
+        </div>
+        <div
+          style={{
+            background: COL.lineSoft,
+            borderRadius: 12,
+            padding: '14px 16px',
+            textAlign: 'center',
+          }}
+        >
+          <div style={{ fontSize: 26, fontWeight: 700, color: COL.text }}>{reviewedScore}%</div>
+          <div style={{ fontSize: 12, color: COL.dim, marginTop: 2 }}>Reviewed</div>
+        </div>
       </div>
+      <MatchBar data={donutData} notReviewedWords={notReviewedWords} />
       <DonutLegend data={donutData} />
-      <ImproveAiTips cols={1} />
+      <ImproveAiTipsCompact tips={tips} />
+    </div>
+  )
+}
+
+// Loading placeholder mirroring PanelView's layout (shimmer via App.css .s-skel).
+export function PanelSkeleton() {
+  const cell = (style: CSSProperties) => <div className="s-skel" style={style} aria-hidden />
+  return (
+    <div
+      style={{
+        fontFamily: SANS,
+        padding: 16,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 18,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {cell({ width: 18, height: 18, borderRadius: 4 })}
+        {cell({ width: 90, height: 14, borderRadius: 6 })}
+        {cell({ width: 120, height: 32, borderRadius: 8, marginLeft: 'auto' })}
+      </div>
+      {cell({ height: 16, borderRadius: 8 })}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        {cell({ height: 70, borderRadius: 12 })}
+        {cell({ height: 70, borderRadius: 12 })}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '9px 20px' }}>
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="s-skel" style={{ height: 13, borderRadius: 6 }} aria-hidden />
+        ))}
+      </div>
     </div>
   )
 }
