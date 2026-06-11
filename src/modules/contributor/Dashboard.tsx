@@ -1,10 +1,17 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
-import { FormControl, MenuItem, Select } from '@mui/material'
+import { useEffect, useMemo, useState } from 'react'
+import { FormControl, MenuItem, Select, Tooltip as MuiTooltip } from '@mui/material'
 import { LanguageSelect, type LangOption } from '../../lib/LanguageSelect'
+import { Flag } from '../../lib/flag'
+import { InfoTip, TipIcon } from '../dashboard/matchView'
 import { FONT } from '../../theme/typography'
+import { ICON } from '../../theme/icons'
 import {
+  BADGES,
+  BADGE_ORDER,
+  BADGE_HOWTO,
   CONFIG,
   matchesActivity,
+  mixFor,
   rankMembers,
   volumeFor,
   type ActivityFilter,
@@ -20,7 +27,6 @@ import {
   ContributorSkeleton,
   MixBar,
   MixLegend,
-  PreliminaryTag,
   TrustPill,
   cardStyle,
 } from './view'
@@ -43,7 +49,6 @@ const RANK_LABEL: Record<RankKey, string> = {
   trust: 'Trust score',
   volume: 'Volume',
   cleanRate: 'Clean rate',
-  survival: 'Survival',
 }
 
 // AI-accuracy filter pattern: a small grey label ABOVE the control.
@@ -58,37 +63,152 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 const MENU_PROPS = { disableScrollLock: true, slotProps: { paper: { style: { maxHeight: 320 } } } } as const
 
-const GRID = '40px minmax(220px, 1.7fr) minmax(120px, 1.3fr) 116px 104px 104px 120px'
+// Same Period options as the AI-accuracy dashboard, mapped to RangeKey windows.
+const RANGE_BY_LABEL: Record<string, RangeKey> = {
+  'Last minute': 'min',
+  'Last 5 minutes': 'min5',
+  'Last hour': 'hour',
+  Today: 'today',
+  'Last week': 'week',
+  'Last 30 days': '30d',
+  'All time': 'all',
+}
+const RANGES = Object.keys(RANGE_BY_LABEL)
 
-function LangChips({ langs }: { langs: string[] }) {
+// (i) for Trust: short, formatted explanation (not one dense paragraph).
+function TrustTip() {
   return (
-    <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
-      {langs.map((l) => (
-        <span
-          key={l}
-          style={{
-            ...FONT.nano,
-            fontWeight: 600,
-            textTransform: 'uppercase',
-            color: C.dim,
-            background: C.lineSoft,
-            border: `1px solid ${C.line}`,
-            borderRadius: 4,
-            padding: '1px 5px',
-            letterSpacing: '0.04em',
-          }}
-        >
-          {l}
-        </span>
-      ))}
+    <MuiTooltip
+      arrow
+      placement="bottom-start"
+      slotProps={{ tooltip: { sx: { maxWidth: 260, p: 1.5 } } }}
+      title={
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+          <div style={{ ...FONT.micro }}>
+            <b>Trust</b> — quality score 0–100 from a person’s whole history.
+          </div>
+          <div style={{ ...FONT.micro, opacity: 0.85, lineHeight: 1.5 }}>
+            Mostly: work accepted unchanged, survives review, and passes QA.
+          </div>
+          <div style={{ ...FONT.micro, opacity: 0.85, lineHeight: 1.5 }}>
+            A little: volume &amp; number of languages.
+          </div>
+          <div style={{ ...FONT.nano, opacity: 0.7 }}>The period filter never changes it.</div>
+        </div>
+      }
+    >
+      <span
+        style={{ display: 'inline-flex', cursor: 'help' }}
+        onClick={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+        }}
+      >
+        <TipIcon type="info" />
+      </span>
+    </MuiTooltip>
+  )
+}
+
+// (i) for the Badges column: lists every badge with its name and how it's earned.
+function BadgeLegendTip() {
+  return (
+    <MuiTooltip
+      arrow
+      placement="bottom-end"
+      slotProps={{ tooltip: { sx: { maxWidth: 'none', p: 1.5 } } }}
+      title={
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 320, padding: 4 }}>
+          <div style={{ ...FONT.label, fontWeight: 700 }}>Badges &amp; how to earn them</div>
+          {BADGE_ORDER.map((b) => (
+            <div key={b} style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+              <span style={{ fontSize: 30, lineHeight: 1, flex: 'none', width: 36, textAlign: 'center' }}>
+                {BADGES[b].glyph}
+              </span>
+              <div>
+                <div style={{ ...FONT.caption, fontWeight: 700 }}>{BADGES[b].label}</div>
+                <div style={{ ...FONT.micro, opacity: 0.85, lineHeight: 1.4 }}>{BADGE_HOWTO[b]}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      }
+    >
+      <span
+        style={{ display: 'inline-flex', cursor: 'help' }}
+        onClick={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+        }}
+      >
+        <TipIcon type="info" />
+      </span>
+    </MuiTooltip>
+  )
+}
+
+const GRID = '40px minmax(320px, 1.7fr) minmax(120px, 1.3fr) 116px 104px 104px 120px'
+
+// The languages a member worked in, shown as flags (fixed 240px block, wraps).
+// Falls back to a code chip when a language has no flag emoji.
+function LangChips({ langs, flags }: { langs: string[]; flags?: Record<string, string> }) {
+  return (
+    <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, width: 240 }}>
+      {langs.map((l) => {
+        const flag = flags?.[l]
+        return flag ? (
+          <span key={l} title={l.toUpperCase()} style={{ display: 'inline-flex' }}>
+            <Flag emoji={flag} size={ICON.sm} />
+          </span>
+        ) : (
+          <span
+            key={l}
+            style={{
+              ...FONT.nano,
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              color: C.dim,
+              background: C.lineSoft,
+              border: `1px solid ${C.line}`,
+              borderRadius: 4,
+              padding: '1px 5px',
+              letterSpacing: '0.04em',
+            }}
+          >
+            {l}
+          </span>
+        )
+      })}
     </span>
   )
 }
 
-function HeadCell({ children, style }: { children?: React.ReactNode; style?: CSSProperties }) {
+function HeadCell({
+  children,
+  info,
+  center = false,
+}: {
+  children?: React.ReactNode
+  /** Optional explanation revealed via an (i) tooltip. */
+  info?: string
+  center?: boolean
+}) {
   return (
-    <div style={{ ...FONT.nano, fontWeight: 600, color: C.faint, textTransform: 'uppercase', letterSpacing: '0.6px', ...style }}>
+    <div
+      style={{
+        ...FONT.nano,
+        fontWeight: 600,
+        color: C.faint,
+        textTransform: 'uppercase',
+        letterSpacing: '0.6px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 3,
+        justifyContent: center ? 'center' : 'flex-start',
+      }}
+    >
       {children}
+      {info && <InfoTip text={info} />}
     </div>
   )
 }
@@ -131,18 +251,17 @@ function Row({
               <TrustPill trust={member.trust} />
             </span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 4 }}>
-            <LangChips langs={member.langs} />
-            {member.preliminary && <PreliminaryTag />}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 9 }}>
+            <LangChips langs={member.langs} flags={member.langFlags} />
           </div>
         </div>
       </div>
 
       <div>
-        <MixBar mix={member.mix} />
+        <MixBar mix={mixFor(member, range)} />
       </div>
 
-      <div>
+      <div style={{ textAlign: 'center' }}>
         <div style={{ ...FONT.label, color: C.text, fontVariantNumeric: 'tabular-nums' }}>
           {vol.toLocaleString('en-US')}
         </div>
@@ -198,7 +317,11 @@ export function ContributorDashboard({
   loading?: boolean
   empty?: boolean
 }) {
-  const [range, setRange] = useState<RangeKey>('all')
+  // Period mirrors AI accuracy's full range list. Volume only has two buckets
+  // (30-day vs all-time), so any range shorter than All time uses the 30-day
+  // figure until the backend exposes finer windows.
+  const [periodLabel, setPeriodLabel] = useState('All time')
+  const range: RangeKey = RANGE_BY_LABEL[periodLabel] ?? 'all'
   const [activity, setActivity] = useState<ActivityFilter>('any')
   const [rankBy, setRankBy] = useState<RankKey>('trust')
 
@@ -224,7 +347,11 @@ export function ContributorDashboard({
     return rankMembers(filtered, rankBy, range)
   }, [team, activity, rankBy, range, langSel, langFilterActive])
 
-  const periodLabel = range === '30d' ? 'Last 30 days' : 'All time'
+  // Any translating/reviewing in the selected period? (mix is empty when none).
+  const hasContribution = rows.some((m) => {
+    const mx = mixFor(m, range)
+    return mx.postedit + mx.scratch + mx.review > 0
+  })
 
   if (loading) return <ContributorSkeleton />
   if (empty || team.length === 0) return <ContributorEmpty />
@@ -282,12 +409,15 @@ export function ContributorDashboard({
         <Field label="Period">
           <FormControl size="small" sx={{ minWidth: 150 }}>
             <Select
-              value={range}
-              onChange={(e) => setRange(e.target.value as RangeKey)}
+              value={periodLabel}
+              onChange={(e) => setPeriodLabel(e.target.value)}
               MenuProps={MENU_PROPS}
             >
-              <MenuItem value="30d">Last 30 days</MenuItem>
-              <MenuItem value="all">All time</MenuItem>
+              {RANGES.map((o) => (
+                <MenuItem key={o} value={o}>
+                  {o}
+                </MenuItem>
+              ))}
             </Select>
           </FormControl>
         </Field>
@@ -308,28 +438,33 @@ export function ContributorDashboard({
           </FormControl>
         </Field>
       </div>
-      <div style={{ ...FONT.micro, color: C.faint, margin: '0 4px 18px' }}>
-        Volume reflects the selected period. Trust always uses full history.
-      </div>
 
       {/* Leaderboard */}
       <div style={{ ...cardStyle, padding: '6px 16px 14px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: 14, padding: '12px 8px 8px' }}>
           <HeadCell>Rank</HeadCell>
-          <HeadCell>Member · Trust</HeadCell>
-          <HeadCell>Contribution</HeadCell>
-          <HeadCell>Volume</HeadCell>
-          <HeadCell>Clean</HeadCell>
-          <HeadCell>QA</HeadCell>
-          <HeadCell>Badges</HeadCell>
+          <HeadCell>Member · Trust <TrustTip /></HeadCell>
+          <HeadCell info="How this person's work splits across post-editing AI, translating from scratch, and reviewing others' work.">
+            Contribution
+          </HeadCell>
+          <HeadCell center>Volume (strings)</HeadCell>
+          <HeadCell info="Clean rate — share of their work accepted without any change at review.">Clean</HeadCell>
+          <HeadCell info="QA pass — share of their strings that triggered no QA check.">QA</HeadCell>
+          <HeadCell>Badges <BadgeLegendTip /></HeadCell>
         </div>
-        {rows.map((m, i) => (
-          <Row key={m.id} member={m} rank={i + 1} range={range} />
-        ))}
-        {rows.length === 0 && (
+        {rows.length === 0 ? (
           <div style={{ ...FONT.caption, color: C.faint, textAlign: 'center', padding: '28px 0' }}>
             No contributors match these filters.
           </div>
+        ) : !hasContribution ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '32px 0' }}>
+            <div style={{ ...FONT.subtitle, color: C.dim }}>No contribution in this period</div>
+            <div style={{ ...FONT.caption, color: C.faint }}>
+              Nobody translated or reviewed in “{periodLabel}”. Try a longer period.
+            </div>
+          </div>
+        ) : (
+          rows.map((m, i) => <Row key={m.id} member={m} rank={i + 1} range={range} />)
         )}
       </div>
 

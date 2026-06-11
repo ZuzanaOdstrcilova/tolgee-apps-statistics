@@ -39,6 +39,7 @@ export const CONFIG = {
     qaGhostPass: 95,
     guardianReviewMix: 40,
     aiTamerFixed: 200,
+    magaMentions: 10, // joke demo: wrote the word "maga" this many times
   },
 } as const
 
@@ -54,6 +55,7 @@ export type BadgeKey =
   | 'qaghost'
   | 'guardian'
   | 'aitamer'
+  | 'maga'
 
 /**
  * A member's RAW signals — what the backend would supply per string (brief §8).
@@ -66,10 +68,12 @@ export type Member = {
   email?: string // Tolgee username; powers the member card's mailto link
   avatarUrl?: string // Tolgee user photo; absent → render initials
   langs: string[] // language codes the member works in
+  /** Volume + mix per period window (keys: all, 30d, week, today, hour, min5, min). */
+  windows?: Record<string, { strings: number; mix: Mix }>
+  magaCount?: number // joke demo: times they wrote the word "maga"
   langFlags?: Record<string, string> // language tag → flag emoji (member card)
   // volume & activity
   strings: number // all strings over full history
-  strings30: number // strings in the last 30 days
   aiFixed: number // AI translations this person corrected
   lastActive: number // days since last work
   // quality — all 0..100
@@ -133,25 +137,24 @@ export const score = (m: Member): ScoredMember => {
 }
 
 // ── Range, filters, ranking ───────────────────────────────────────────────────
-export type RangeKey = '30d' | 'all' | 'range'
-/** Volume respects the range; quality/trust never do (brief §3 "Aktivita vs trust"). */
+export type RangeKey = 'min' | 'min5' | 'hour' | 'today' | 'week' | '30d' | 'all'
+/** Volume for the period window (falls back to all-time). Quality/trust never
+ *  change with the range (brief §3 "Aktivita vs trust"). */
 export const volumeFor = (m: Member, range: RangeKey): number =>
-  range === '30d' ? m.strings30 : m.strings
+  m.windows?.[range]?.strings ?? m.strings
+
+/** Contribution mix for the period window (falls back to all-time). */
+export const mixFor = (m: Member, range: RangeKey): Mix =>
+  m.windows?.[range]?.mix ?? m.mix
 
 export type ActivityFilter = 'any' | MixKey
-/**
- * Activity filter: keep members whose work is MOSTLY this activity (it's their
- * largest mix share, ties included). `> 0` barely filtered — almost everyone has
- * a little of each — so we match on the dominant component instead.
- */
-export const matchesActivity = (m: Member, f: ActivityFilter): boolean => {
-  if (f === 'any') return true
-  const max = Math.max(m.mix.postedit, m.mix.scratch, m.mix.review)
-  return m.mix[f] === max
-}
+/** Activity filter: keep members who do this activity at all (mix share > 0).
+ *  Doing other things too is fine — this just requires ≥1 of the selected kind. */
+export const matchesActivity = (m: Member, f: ActivityFilter): boolean =>
+  f === 'any' ? true : m.mix[f] > 0
 
 export type TierFilter = 'all' | Tier
-export type RankKey = 'trust' | 'volume' | 'cleanRate' | 'survival'
+export type RankKey = 'trust' | 'volume' | 'cleanRate'
 
 /** Rank members. Only "volume" respects the range; the rest use full history. */
 export function rankMembers(
@@ -165,8 +168,6 @@ export function rankMembers(
         return volumeFor(m, range)
       case 'cleanRate':
         return m.cleanRate
-      case 'survival':
-        return m.survival
       case 'trust':
       default:
         return m.trust
@@ -194,16 +195,29 @@ export const TIER_META: Record<Tier, { label: string; color: string }> = {
 export const AVATAR_COLOR = '#3b4456'
 
 export const BADGES: Record<BadgeKey, { label: string; glyph: string; note: string; color: string }> = {
-  workhorse: { label: 'Workhorse', glyph: '🏋️', note: 'High contribution volume', color: '#e6256b' },
-  polyglot: { label: 'Polyglot', glyph: '🌐', note: 'Works across many languages', color: '#5cc0f0' },
-  nativevoice: { label: 'Native Voice', glyph: '🎙️', note: 'Deep focus on one language', color: '#7c5cff' },
-  cleanhands: { label: 'Clean Hands', glyph: '✨', note: 'Accepted without edits', color: '#22c39a' },
-  qaghost: { label: 'QA Ghost', glyph: '👻', note: 'Almost no QA checks triggered', color: '#14b8c4' },
+  workhorse: { label: 'Heavy Lifter', glyph: '🏋️', note: 'High contribution volume', color: '#e6256b' },
+  polyglot: { label: 'Polyglot', glyph: '🌍', note: 'Works across many languages', color: '#5cc0f0' },
+  nativevoice: { label: 'Native Voice', glyph: '🗣️', note: 'Deep focus on one language', color: '#7c5cff' },
+  cleanhands: { label: 'Spotless', glyph: '💎', note: 'Accepted without edits', color: '#22c39a' },
+  qaghost: { label: 'QA Ninja', glyph: '🥷', note: 'Almost no QA checks triggered', color: '#14b8c4' },
   guardian: { label: 'Guardian', glyph: '🛡️', note: 'Catches and fixes the most issues', color: '#d8a008' },
-  aitamer: { label: 'AI Tamer', glyph: '🤖', note: 'Strong at correcting machine output', color: '#ec407a' },
+  aitamer: { label: 'AI Fixer', glyph: '🤖', note: 'Strong at correcting machine output', color: '#ec407a' },
+  maga: { label: 'MAGA', glyph: '🧢', note: 'Wrote the word “maga” 10+ times (just for fun)', color: '#e23b2e' },
 }
 // Badge tiers (bronze/silver/gold) aren't used yet — left for later (brief §6).
 export const BADGE_ORDER = Object.keys(BADGES) as BadgeKey[]
+
+/** Short "how you earn it" line per badge, tied to the CONFIG.badges thresholds. */
+export const BADGE_HOWTO: Record<BadgeKey, string> = {
+  workhorse: 'High contribution volume over their whole history (~400+ strings).',
+  polyglot: `Works across ${CONFIG.badges.polyglotLangs}+ languages.`,
+  nativevoice: `Deep focus on a single language (${CONFIG.badges.nativeVoiceStrings}+ strings).`,
+  cleanhands: `${CONFIG.badges.cleanHandsRate}%+ of their work accepted without edits.`,
+  qaghost: `${CONFIG.badges.qaGhostPass}%+ of their strings trigger no QA check.`,
+  guardian: `${CONFIG.badges.guardianReviewMix}%+ of their work is reviewing others.`,
+  aitamer: `Corrected ${CONFIG.badges.aiTamerFixed}+ AI translations.`,
+  maga: `Use the word “maga” ${CONFIG.badges.magaMentions}+ times.`,
+}
 
 /**
  * Earned badges, DERIVED from raw signals (thresholds in CONFIG.badges) — same
@@ -219,6 +233,7 @@ export function deriveBadges(m: Member): BadgeKey[] {
   if (m.qaPass >= b.qaGhostPass) out.push('qaghost')
   if (m.mix.review >= b.guardianReviewMix) out.push('guardian')
   if (m.aiFixed >= b.aiTamerFixed) out.push('aitamer')
+  if ((m.magaCount ?? 0) >= b.magaMentions) out.push('maga')
   return out
 }
 
@@ -238,6 +253,7 @@ export function closestBadge(m: ScoredMember): { key: BadgeKey; progress: number
     qaghost: `keep QA checks low on ${40} more strings`,
     guardian: 'catch and fix more flagged issues',
     aitamer: 'correct more machine output',
+    maga: 'write “maga” a few more times 🧢',
   }
   // Illustrative progress: lean on the most relevant signal we already have.
   const progress = clamp100(Math.round(m.qaPass * 0.75))
@@ -250,8 +266,21 @@ export function closestBadge(m: ScoredMember): { key: BadgeKey; progress: number
 
 export type TeamState = { team: ScoredMember[]; loading: boolean; empty: boolean; error: string | null }
 
+/** Bumps whenever the window regains focus — included in fetch deps so stats
+ *  refresh after the user edits translations in Tolgee and returns to the tab. */
+function useFocusKey(): number {
+  const [key, setKey] = useState(0)
+  useEffect(() => {
+    const bump = () => setKey((k) => k + 1)
+    window.addEventListener('focus', bump)
+    return () => window.removeEventListener('focus', bump)
+  }, [])
+  return key
+}
+
 /** The whole team for the dashboard. `projectId` undefined (standalone) → empty. */
 export function useContributors(projectId: number | undefined): TeamState {
+  const focusKey = useFocusKey()
   const [state, setState] = useState<TeamState>({
     team: [],
     loading: projectId != null,
@@ -277,7 +306,7 @@ export function useContributors(projectId: number | undefined): TeamState {
         setState({ team: [], loading: false, empty: true, error: e instanceof Error ? e.message : String(e) })
       })
     return () => ctrl.abort()
-  }, [projectId])
+  }, [projectId, focusKey])
   return state
 }
 
@@ -286,6 +315,7 @@ export type MeState = { member: ScoredMember | null; loading: boolean; error: st
 /** The calling user's own card for the panel. Needs the iframe context `token`
  *  so the server can identify the user (install auth has no user identity). */
 export function useContributorMe(projectId: number | undefined, token: string | undefined): MeState {
+  const focusKey = useFocusKey()
   const [state, setState] = useState<MeState>({ member: null, loading: projectId != null && !!token, error: null })
   useEffect(() => {
     if (projectId == null || !token) {
@@ -308,7 +338,7 @@ export function useContributorMe(projectId: number | undefined, token: string | 
         setState({ member: null, loading: false, error: e instanceof Error ? e.message : String(e) })
       })
     return () => ctrl.abort()
-  }, [projectId, token])
+  }, [projectId, token, focusKey])
   return state
 }
 
@@ -337,7 +367,7 @@ const dummy = (
   langs,
   langFlags: Object.fromEntries(langs.map((t) => [t, DUMMY_FLAGS[t] ?? ''])),
   strings,
-  strings30,
+  windows: { all: { strings, mix }, '30d': { strings: strings30, mix } },
   aiFixed,
   lastActive,
   cleanRate,

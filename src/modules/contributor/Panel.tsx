@@ -18,7 +18,6 @@ import {
   MeterBar,
   MixBar,
   MixLegend,
-  PreliminaryTag,
 } from './view'
 
 // Contributor panel (brief §5): a compact card beside the editor, one person,
@@ -83,19 +82,14 @@ export function ContributorPanel({
       <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
         <MemberAvatar member={member} size={76} />
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
             <span style={{ ...FONT.display, fontSize: 34, lineHeight: 1, color: trustColor }}>
               {member.trust}
             </span>
-            <span style={{ ...FONT.micro, color: C.dim, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            <span style={{ ...FONT.micro, fontWeight: 700, color: trustColor, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
               Trust score
             </span>
           </div>
-          {member.preliminary && (
-            <div style={{ marginTop: 6 }}>
-              <PreliminaryTag />
-            </div>
-          )}
         </div>
       </div>
 
@@ -119,9 +113,12 @@ export function ContributorPanel({
 
       {/* Stats */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14, borderTop: `1px solid ${C.line}`, paddingTop: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-          <span style={{ ...FONT.caption, color: C.dim }}>Strings</span>
-          <FormControl size="small" sx={{ minWidth: 130 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <span style={{ ...FONT.label, color: C.text, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+            {volumeFor(member, range).toLocaleString('en-US')}{' '}
+            <span style={{ ...FONT.label, fontWeight: 700, color: C.dim }}>strings</span>
+          </span>
+          <FormControl size="small" sx={{ minWidth: 120 }}>
             <Select
               value={range}
               onChange={(e) => setRange(e.target.value as RangeKey)}
@@ -134,9 +131,6 @@ export function ContributorPanel({
               ))}
             </Select>
           </FormControl>
-        </div>
-        <div style={{ ...FONT.display, color: C.text, marginTop: -4 }}>
-          {volumeFor(member, range).toLocaleString('en-US')}
         </div>
         <StatRow
           label="Accepted without edits"

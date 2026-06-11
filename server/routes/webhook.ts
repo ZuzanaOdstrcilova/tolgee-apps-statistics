@@ -3,6 +3,7 @@ import { onWebhook, receiveWebhook } from '@tolgee/apps-sdk/server'
 import { WEBHOOK_SECRET } from '../config'
 import { store } from '../store'
 import { invalidateMatch } from '../match'
+import { invalidateContributors } from '../contributors'
 
 export const registerWebhookRoute = (app: Express): void => {
   // express.text keeps the body verbatim — the SDK verifier needs the raw
@@ -34,6 +35,7 @@ const handleWebhook = async (req: Request, res: Response): Promise<void> => {
     const ents = typed.activityData?.modifiedEntities?.Translation ?? []
     store.recordTranslationEdits(ents, iso)
     for (const e of ents) invalidateMatch(e.entityId)
+    invalidateContributors() // contributor stats changed too
   })
 
   // State transitions → REVIEWED credits the current author's "accuracy".
@@ -42,10 +44,16 @@ const handleWebhook = async (req: Request, res: Response): Promise<void> => {
     const ents = typed.activityData?.modifiedEntities?.Translation ?? []
     store.recordStateChanges(ents, iso)
     for (const e of ents) invalidateMatch(e.entityId)
+    invalidateContributors()
   })
 
-  // CREATE_KEY / KEY_DELETE are still subscribed in the manifest but no longer
-  // tracked — nothing in the app consumed key counts. Acknowledged below.
+  // Deleting a key removes its translations → recompute contributor stats.
+  // Match self-corrects: /api/match always re-lists reviewed translations, so
+  // deleted ones simply drop out (their per-translation cache entries orphan
+  // harmlessly). CREATE_KEY adds untranslated cells with no activity → no-op.
+  onWebhook(payload, 'KEY_DELETE', () => {
+    invalidateContributors()
+  })
 
   res.status(204).end()
 }

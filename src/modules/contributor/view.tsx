@@ -353,6 +353,12 @@ export function PreliminaryTag() {
 export const trustColor = (trust: number): string =>
   trust >= 90 ? '#00C86C' : trust >= 80 ? '#5CD6B0' : trust >= 70 ? '#4FC3F7' : '#FF7A8F'
 
+// Darker, more saturated band colours for TEXT — the pill's tinted background
+// keeps the soft band hue, but the number reads with proper contrast (the pale
+// teal/light-blue were washed out as text).
+const trustTextColor = (trust: number): string =>
+  trust >= 90 ? '#0a8f4f' : trust >= 80 ? '#0e8a76' : trust >= 70 ? '#1565c0' : '#c2185b'
+
 export function TrustPill({ trust }: { trust: number }) {
   const color = trustColor(trust)
   return (
@@ -361,17 +367,17 @@ export function TrustPill({ trust }: { trust: number }) {
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
-        minWidth: 40,
-        height: 28,
-        padding: '0 10px',
+        height: 22,
+        padding: '0 9px',
         borderRadius: 999,
-        background: `color-mix(in srgb, ${color} 20%, transparent)`,
-        color,
-        ...FONT.label,
+        background: `color-mix(in srgb, ${color} 22%, transparent)`,
+        color: trustTextColor(trust),
+        ...FONT.micro,
         fontWeight: 700,
+        whiteSpace: 'nowrap',
       }}
     >
-      {trust}
+      Trust: {trust}
     </span>
   )
 }

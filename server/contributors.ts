@@ -1,5 +1,6 @@
 import {
   fetchActivity,
+  fetchAliveTranslationIds,
   fetchQaIssueTranslationIds,
   tolgeeBaseUrl,
   type ActivityRevision,
@@ -33,15 +34,23 @@ export type ContributorMember = {
   /** Language tag → flag emoji (for the member card's flags). */
   langFlags: Record<string, string>
   strings: number
-  strings30: number
   aiFixed: number
   lastActive: number
   cleanRate: number
   qaPass: number
   survival: number
+  /** How many times the word "maga" appears in this person's translations (joke demo badge). */
+  magaCount: number
   mix: { postedit: number; scratch: number; review: number }
+  /** Volume + mix per period window (keys: all, 30d, week, today, hour, min5, min). */
+  windows: Record<string, { strings: number; mix: { postedit: number; scratch: number; review: number } }>
   badges: string[]
 }
+
+// Count occurrences of the word "maga" (case-insensitive) in a translation,
+// for the joke "MAGA" badge. Word-boundaried so "magazine" doesn't count.
+const countMaga = (text: unknown): number =>
+  typeof text === 'string' ? (text.match(/\bmaga\b/gi)?.length ?? 0) : 0
 
 const initialsOf = (name: string): string =>
   name
@@ -54,6 +63,21 @@ const initialsOf = (name: string): string =>
 const pct = (part: number, whole: number): number =>
   whole === 0 ? 0 : Math.round((100 * part) / whole)
 
+// Period windows the dashboard offers, by max age in ms (keyed like the client's
+// RangeKey). 'all' isn't here — it uses the lifetime totals.
+export const RANGE_MS: Record<string, number> = {
+  min: 60_000,
+  min5: 5 * 60_000,
+  hour: 60 * 60_000,
+  today: 24 * 60 * 60_000,
+  week: 7 * MS_PER_DAY,
+  '30d': 30 * MS_PER_DAY,
+}
+const WINDOW_KEYS = Object.keys(RANGE_MS)
+type WinCounts = { s: number; pe: number; sc: number; re: number }
+const newWin = (): Record<string, WinCounts> =>
+  Object.fromEntries(WINDOW_KEYS.map((k) => [k, { s: 0, pe: 0, sc: 0, re: 0 }]))
+
 // Per-author running tallies during the activity walk.
 type Acc = {
   id: number
@@ -61,10 +85,11 @@ type Acc = {
   langs: Set<string>
   langFlags: Map<string, string>
   strings: number
-  strings30: number
   postedit: number
   scratch: number
   review: number
+  // Same metrics bucketed into each period window (strings + post/scratch/review).
+  win: Record<string, WinCounts>
   aiFixed: number
   lastActive: number
   // quality
@@ -73,6 +98,7 @@ type Acc = {
   reviewedPostedits: number
   cleanPostedits: number
   owned: Set<number> // translations where this author is the current human text-setter
+  magaCount: number // joke demo: times they wrote the word "maga"
 }
 
 const newAcc = (id: number, name: string): Acc => ({
@@ -81,10 +107,10 @@ const newAcc = (id: number, name: string): Acc => ({
   langs: new Set(),
   langFlags: new Map(),
   strings: 0,
-  strings30: 0,
   postedit: 0,
   scratch: 0,
   review: 0,
+  win: newWin(),
   aiFixed: 0,
   lastActive: 0,
   reviewedEdits: 0,
@@ -92,6 +118,7 @@ const newAcc = (id: number, name: string): Acc => ({
   reviewedPostedits: 0,
   cleanPostedits: 0,
   owned: new Set(),
+  magaCount: 0,
 })
 
 /** One translation's most recent un-reviewed human edit, pending a review verdict. */
@@ -99,9 +126,11 @@ type Pending = { author: number; postedit: boolean }
 
 export const computeContributors = async (projectId: number): Promise<ContributorMember[]> => {
   const now = Date.now()
-  const since30 = now - 30 * MS_PER_DAY
 
-  const revisions = await fetchActivity(projectId)
+  const [revisions, alive] = await Promise.all([
+    fetchActivity(projectId),
+    fetchAliveTranslationIds(projectId),
+  ])
   // Activity comes newest-first; build timelines oldest→newest.
   revisions.sort((a, b) => a.timestamp - b.timestamp)
 
@@ -135,22 +164,29 @@ export const computeContributors = async (projectId: number): Promise<Contributo
 
   for (const rev of revisions as ActivityRevision[]) {
     for (const t of rev.translations) {
-      const mods = t.modifications ?? {}
       const entityId = t.entityId
+
+      // Capture identity (avatar/email) from EVERY event, BEFORE the alive-skip —
+      // a contributor's photo shouldn't disappear just because some of their work
+      // was on since-deleted keys.
+      const authorId = rev.author?.id
+      const authorName = rev.author?.name ?? rev.author?.username ?? ''
+      if (authorId !== undefined) {
+        const avatarPath = rev.author?.avatar?.large
+        const username = rev.author?.username
+        if (avatarPath) avatars.set(authorId, avatarPath)
+        if (username?.includes('@')) emails.set(authorId, username)
+      }
+
+      // Skip STATS for translations that no longer exist (deleted keys).
+      if (!alive.has(entityId)) continue
+      const mods = t.modifications ?? {}
       const tag = t.relations?.language?.data?.tag
       const flag = t.relations?.language?.data?.flagEmoji
       if (tag) ownerTag.set(entityId, tag)
       const hasText = 'text' in mods
       const reviewedNow = mods.state?.new === 'REVIEWED'
       const evAi = isAiModification(mods)
-      const authorId = rev.author?.id
-      const authorName = rev.author?.name ?? rev.author?.username ?? ''
-      const avatarPath = rev.author?.avatar?.large
-      const username = rev.author?.username
-      if (authorId !== undefined) {
-        if (avatarPath) avatars.set(authorId, avatarPath)
-        if (username?.includes('@')) emails.set(authorId, username)
-      }
 
       if (hasText) {
         if (evAi) {
@@ -168,12 +204,21 @@ export const computeContributors = async (projectId: number): Promise<Contributo
           // log doesn't expand per-translation).
           const postedit = currentIsAi.get(entityId) === true || wasAiBeforeModification(mods)
           a.strings++
-          if (rev.timestamp >= since30) a.strings30++
+          a.magaCount += countMaga(mods.text?.new) // joke demo badge
           if (postedit) {
             a.postedit++
             a.aiFixed++
           } else {
             a.scratch++
+          }
+          const age = now - rev.timestamp
+          for (const k of WINDOW_KEYS) {
+            if (age <= RANGE_MS[k]) {
+              const w = a.win[k]
+              w.s++
+              if (postedit) w.pe++
+              else w.sc++
+            }
           }
           // Languages are credited ONLY for actual translation work (this human
           // text-edit branch) — reviewing a language never adds it. Tolgee's
@@ -209,11 +254,11 @@ export const computeContributors = async (projectId: number): Promise<Contributo
           pending.delete(entityId)
         }
         if (authorId !== undefined && !rev.author?.deleted) {
-          acc(authorId, authorName).review++
-          acc(authorId, authorName).lastActive = Math.max(
-            accs.get(authorId)!.lastActive,
-            rev.timestamp
-          )
+          const a = acc(authorId, authorName)
+          a.review++
+          const age = now - rev.timestamp
+          for (const k of WINDOW_KEYS) if (age <= RANGE_MS[k]) a.win[k].re++
+          a.lastActive = Math.max(a.lastActive, rev.timestamp)
         }
       }
     }
@@ -253,16 +298,44 @@ export const computeContributors = async (projectId: number): Promise<Contributo
       langs: [...a.langs].sort(),
       langFlags: Object.fromEntries(a.langFlags),
       strings: a.strings,
-      strings30: a.strings30,
       aiFixed: a.aiFixed,
       lastActive: a.lastActive ? Math.floor((now - a.lastActive) / MS_PER_DAY) : 9999,
       cleanRate: pct(a.cleanEdits, a.reviewedEdits),
       qaPass: a.owned.size === 0 ? 100 : pct(a.owned.size - withIssue, a.owned.size),
       survival: pct(a.cleanPostedits, a.reviewedPostedits),
+      magaCount: a.magaCount,
       mix: {
         postedit: pct(a.postedit, actions),
         scratch: pct(a.scratch, actions),
         review: pct(a.review, actions),
+      },
+      // Per-period volume + mix: 'all' uses lifetime totals, the rest each window.
+      windows: {
+        all: {
+          strings: a.strings,
+          mix: {
+            postedit: pct(a.postedit, actions),
+            scratch: pct(a.scratch, actions),
+            review: pct(a.review, actions),
+          },
+        },
+        ...Object.fromEntries(
+          WINDOW_KEYS.map((k) => {
+            const w = a.win[k]
+            const tot = w.pe + w.sc + w.re
+            return [
+              k,
+              {
+                strings: w.s,
+                mix: {
+                  postedit: pct(w.pe, tot),
+                  scratch: pct(w.sc, tot),
+                  review: pct(w.re, tot),
+                },
+              },
+            ]
+          })
+        ),
       },
       badges: [], // derived in the app later (brief §6)
     })
@@ -282,4 +355,11 @@ export const getContributors = async (projectId: number): Promise<ContributorMem
   const members = await computeContributors(projectId)
   cache.set(projectId, { at: Date.now(), members })
   return members
+}
+
+/** Drop the cache so the next /api/contributors recomputes. Called from
+ *  webhooks when translations change/are deleted (no projectId → clear all). */
+export const invalidateContributors = (projectId?: number): void => {
+  if (projectId === undefined) cache.clear()
+  else cache.delete(projectId)
 }

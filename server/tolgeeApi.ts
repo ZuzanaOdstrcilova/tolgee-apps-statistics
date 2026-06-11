@@ -184,6 +184,39 @@ const pageTranslations = async (
   return out
 }
 
+/**
+ * The set of translation entity IDs that CURRENTLY exist in the project (all
+ * languages, any state). Contributor stats are reconstructed from the activity
+ * log, which is append-only — deleting a key leaves its historical events
+ * behind. Intersecting with this set drops contributions to deleted strings so
+ * volume/languages reflect what still exists.
+ */
+export const fetchAliveTranslationIds = async (projectId: number): Promise<Set<number>> => {
+  // Request EVERY language explicitly — without `languages` the endpoint returns
+  // only a subset, which would drop live work in the other languages.
+  const { list } = await getProjectLanguages(projectId)
+  const tags = list.map((l) => l.tag)
+  const ids = new Set<number>()
+  if (tags.length === 0) return ids
+  let cursor: string | undefined
+  for (let i = 0; i < MAX_PAGES; i++) {
+    const qs = new URLSearchParams()
+    qs.set('languages', tags.join(','))
+    qs.set('size', String(PAGE_SIZE))
+    if (cursor) qs.set('cursor', cursor)
+    const json = await tolgeeFetch<KeysResponse>(`/v2/projects/${projectId}/translations`, qs)
+    const keys = json._embedded?.keys ?? []
+    for (const k of keys) {
+      for (const t of Object.values(k.translations ?? {})) {
+        if (t && typeof t.id === 'number') ids.add(t.id)
+      }
+    }
+    cursor = json.nextCursor
+    if (!cursor || keys.length === 0) break
+  }
+  return ids
+}
+
 /** Translations currently in the REVIEWED state for a language. */
 export const fetchReviewedTranslations = (
   projectId: number,
