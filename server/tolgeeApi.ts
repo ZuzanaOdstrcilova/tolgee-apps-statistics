@@ -5,9 +5,13 @@ import { INSTALL_FILE, TOLGEE_URL } from './config'
  * Server-to-Tolgee REST access. The app authenticates with the install
  * `clientSecret` as an `X-API-Key` header — the credential `npm run register`
  * wrote to `.tolgee-dev/install.json`. Effective permissions are the app's
- * granted scopes (translations.view, keys.view, activity.view), so the server
- * can read translations + per-translation history for any enabled project
- * WITHOUT forwarding the iframe's context token.
+ * granted scopes, so the server can read the AI-match-stats aggregate for any
+ * enabled project WITHOUT forwarding the iframe's context token.
+ *
+ * The match scores now come from Tolgee's native, pre-aggregated endpoint
+ * `GET /v2/projects/{id}/ai-match-stats[/languages]` (scope: `translations.view`).
+ * The old per-translation history N+1 is gone — Tolgee reconstructs and scores
+ * server-side and pushes the time range into SQL.
  */
 
 type InstallRecord = { tolgeeUrl?: string; clientSecret?: string }
@@ -41,7 +45,7 @@ const tolgeeFetch = async <T>(path: string, qs?: URLSearchParams): Promise<T> =>
   return (await res.json()) as T
 }
 
-// ---- Types ----------------------------------------------------------------
+// ---- Languages (for the AI-context links + pickers) ------------------------
 
 export type ProjectLang = {
   id: number
@@ -57,23 +61,6 @@ export type ProjectLanguages = {
   byTag: Map<string, ProjectLang>
 }
 
-export type ListedTranslation = {
-  translationId: number
-  tag: string
-  text: string
-  state: string
-  auto: boolean
-  mtProvider?: string
-}
-
-export type HistoryRevision = {
-  timestamp: number
-  revisionType: string
-  modifications: Record<string, { old?: unknown; new?: unknown }>
-}
-
-// ---- Raw response shapes (narrow subset of the OpenAPI models) -------------
-
 type LanguagesResponse = {
   _embedded?: {
     languages?: Array<{
@@ -85,25 +72,6 @@ type LanguagesResponse = {
     }>
   }
 }
-
-type TranslationView = {
-  id?: number
-  text?: string | null
-  state?: string
-  auto?: boolean
-  mtProvider?: string | null
-}
-
-type KeysResponse = {
-  nextCursor?: string
-  _embedded?: {
-    keys?: Array<{ translations?: Record<string, TranslationView | undefined> }>
-  }
-}
-
-type HistoryResponse = { _embedded?: { revisions?: HistoryRevision[] } }
-
-// ---- Fetchers --------------------------------------------------------------
 
 const langCache = new Map<number, Promise<ProjectLanguages>>()
 
@@ -139,90 +107,95 @@ export const getProjectLanguages = (projectId: number): Promise<ProjectLanguages
   })
 }
 
-const PAGE_SIZE = 200
-const MAX_PAGES = 1000
+// ---- AI match stats (native Tolgee aggregate) ------------------------------
 
-/** Cursor-page a translations query, collecting one language column. */
-const pageTranslations = async (
-  projectId: number,
-  tag: string,
-  extra: (qs: URLSearchParams) => void,
-  keep: (t: ListedTranslation) => boolean
-): Promise<ListedTranslation[]> => {
-  const out: ListedTranslation[] = []
-  let cursor: string | undefined
-  for (let i = 0; i < MAX_PAGES; i++) {
-    const qs = new URLSearchParams()
-    qs.append('languages', tag)
-    qs.set('size', String(PAGE_SIZE))
-    if (cursor) qs.set('cursor', cursor)
-    extra(qs)
-    const json = await tolgeeFetch<KeysResponse>(
-      `/v2/projects/${projectId}/translations`,
-      qs
-    )
-    const keys = json._embedded?.keys ?? []
-    for (const k of keys) {
-      const t = k.translations?.[tag]
-      if (!t || typeof t.id !== 'number') continue
-      const row: ListedTranslation = {
-        translationId: t.id,
-        tag,
-        text: t.text ?? '',
-        state: t.state ?? '',
-        auto: t.auto === true,
-        mtProvider: t.mtProvider ?? undefined,
-      }
-      if (keep(row)) out.push(row)
-    }
-    cursor = json.nextCursor
-    if (!cursor || keys.length === 0) break
-  }
-  return out
+/** One score bucket on the project summary: word/key/contributing-language counts. */
+export type AiMatchBucket = { words: number; keys: number; langs: number }
+
+/** `GET /v2/projects/{id}/ai-match-stats` — project-wide summary. */
+export type AiMatchSummary = {
+  projectId: number
+  reviewedAfter: number | null
+  reviewedBefore: number | null
+  /** epoch ms of the last materialized refresh (null if never). */
+  generatedAt: number | null
+  /** false while a huge project's first-time backfill is still catching up. */
+  upToDate: boolean
+  b100: AiMatchBucket
+  b9990: AiMatchBucket
+  b8980: AiMatchBucket
+  b7970: AiMatchBucket
+  bno: AiMatchBucket
+  reviewedWords: number
+  reviewedKeys: number
+  notReviewedWords: number
+  notReviewedKeys: number
+  langCount: number
+  avgMatchScore: number
+  reviewedPct: number
 }
 
-/** Translations currently in the REVIEWED state for a language. */
-export const fetchReviewedTranslations = (
-  projectId: number,
+/** One row of `GET /v2/projects/{id}/ai-match-stats/languages`. */
+export type AiMatchLangRow = {
   tag: string
-): Promise<ListedTranslation[]> =>
-  pageTranslations(
-    projectId,
-    tag,
-    (qs) => qs.append('filterState', `${tag},REVIEWED`),
-    (t) => t.state === 'REVIEWED'
-  )
-
-/**
- * AI-translated cells that are NOT yet reviewed — the "Not reviewed" bucket.
- * `filterAutoTranslatedInLang` returns still-auto translations; we keep the
- * ones that haven't reached REVIEWED.
- */
-export const fetchNotReviewedAi = (
-  projectId: number,
-  tag: string
-): Promise<ListedTranslation[]> =>
-  pageTranslations(
-    projectId,
-    tag,
-    (qs) => qs.append('filterAutoTranslatedInLang', tag),
-    (t) => t.state !== 'REVIEWED'
-  )
-
-const HISTORY_PAGE_SIZE = 100
-
-/** Ordered revisions for one translation (newest → oldest, as Tolgee returns). */
-export const fetchHistory = async (
-  projectId: number,
-  translationId: number
-): Promise<HistoryRevision[]> => {
-  const qs = new URLSearchParams({ size: String(HISTORY_PAGE_SIZE), page: '0' })
-  const json = await tolgeeFetch<HistoryResponse>(
-    `/v2/projects/${projectId}/translations/${translationId}/history`,
-    qs
-  )
-  return json._embedded?.revisions ?? []
+  name: string | null
+  flag: string | null
+  total: number
+  b100: number
+  b9990: number
+  b8980: number
+  b7970: number
+  bno: number
+  notReviewed: number
+  avgMatchScore: number
+  b100Pct: number
+  b9990Pct: number
+  b8980Pct: number
+  b7970Pct: number
+  bnoPct: number
+  notReviewedPct: number
 }
+
+export type AiMatchLanguages = {
+  generatedAt: number | null
+  perLang: AiMatchLangRow[]
+}
+
+/** Shared query string: repeatable `languages` + optional epoch-ms range bounds. */
+const matchStatsQuery = (
+  tags: readonly string[],
+  reviewedAfter?: number,
+  reviewedBefore?: number
+): URLSearchParams => {
+  const qs = new URLSearchParams()
+  for (const tag of tags) qs.append('languages', tag)
+  // 0 / undefined ⇒ "all time" ⇒ omit the bound entirely.
+  if (reviewedAfter && reviewedAfter > 0) qs.set('reviewedAfter', String(reviewedAfter))
+  if (reviewedBefore && reviewedBefore > 0) qs.set('reviewedBefore', String(reviewedBefore))
+  return qs
+}
+
+export const fetchAiMatchSummary = (
+  projectId: number,
+  tags: readonly string[],
+  reviewedAfter?: number,
+  reviewedBefore?: number
+): Promise<AiMatchSummary> =>
+  tolgeeFetch<AiMatchSummary>(
+    `/v2/projects/${projectId}/ai-match-stats`,
+    matchStatsQuery(tags, reviewedAfter, reviewedBefore)
+  )
+
+export const fetchAiMatchLanguages = (
+  projectId: number,
+  tags: readonly string[],
+  reviewedAfter?: number,
+  reviewedBefore?: number
+): Promise<AiMatchLanguages> =>
+  tolgeeFetch<AiMatchLanguages>(
+    `/v2/projects/${projectId}/ai-match-stats/languages`,
+    matchStatsQuery(tags, reviewedAfter, reviewedBefore)
+  )
 
 // ---- AI context (for the "Improve AI accuracy" panel links) ---------------
 

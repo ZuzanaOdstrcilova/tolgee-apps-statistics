@@ -1,15 +1,17 @@
 import type { Express, Request, Response } from 'express'
 import { computeMatch, emptyMatch, type MatchRange } from '../match'
 import { tolgeeReady } from '../tolgeeApi'
-import { charLevenshteinScore, wordTokenScore } from '../similarity'
 
 /**
- * GET /api/match?projectId=&langs=cs,de&range=today|last7|last30|all[&scorer=word|char]
+ * GET /api/match?projectId=&langs=cs,de&range=today|last7|last30|all
  *
- * Computes real AI-vs-reviewed match scores per language for the dashboard.
- * Authenticated server-side via the install X-API-Key (see tolgeeApi.ts), so
- * the dashboard iframe just reads the aggregate. Inherits the SDK CORS headers
- * applied in server/index.ts.
+ * Serves AI-vs-reviewed match scores per language for the dashboard. The numbers
+ * come from Tolgee's native `ai-match-stats` aggregate (see match.ts/tolgeeApi.ts);
+ * authenticated server-side via the install X-API-Key, so the dashboard iframe
+ * just reads the result. Inherits the SDK CORS headers applied in server/index.ts.
+ *
+ * Note: scoring is fixed word-level server-side now, so the old `scorer=word|char`
+ * query param is accepted-but-ignored for backward compatibility.
  */
 const RANGES: readonly MatchRange[] = [
   'last1min',
@@ -42,14 +44,13 @@ export const registerMatchRoute = (app: Express): void => {
       .map((s) => s.trim())
       .filter(Boolean)
     const range = normalizeRange(req.query.range)
-    const scorer = req.query.scorer === 'char' ? charLevenshteinScore : wordTokenScore
 
     if (tags.length === 0) {
       res.json(emptyMatch(range))
       return
     }
     try {
-      res.json(await computeMatch(projectId, tags, range, scorer))
+      res.json(await computeMatch(projectId, tags, range))
     } catch (err) {
       res.status(502).json({ ok: false, error: err instanceof Error ? err.message : String(err) })
     }
