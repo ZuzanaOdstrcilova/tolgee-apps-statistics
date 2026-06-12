@@ -264,7 +264,13 @@ export function closestBadge(m: ScoredMember): { key: BadgeKey; progress: number
 // Raw signals come from /api/contributors; trust/tier/preliminary are derived
 // here via `score`. Standalone (no projectId) → empty, never mock.
 
-export type TeamState = { team: ScoredMember[]; loading: boolean; empty: boolean; error: string | null }
+export type TeamState = {
+  team: ScoredMember[]
+  loading: boolean
+  empty: boolean
+  error: string | null
+  reload: () => void
+}
 
 /** Bumps whenever the window regains focus — included in fetch deps so stats
  *  refresh after the user edits translations in Tolgee and returns to the tab. */
@@ -281,7 +287,9 @@ function useFocusKey(): number {
 /** The whole team for the dashboard. `projectId` undefined (standalone) → empty. */
 export function useContributors(projectId: number | undefined): TeamState {
   const focusKey = useFocusKey()
-  const [state, setState] = useState<TeamState>({
+  const [reloadKey, setReloadKey] = useState(0)
+  const reload = () => setReloadKey((k) => k + 1)
+  const [state, setState] = useState<Omit<TeamState, 'reload'>>({
     team: [],
     loading: projectId != null,
     empty: false,
@@ -303,11 +311,18 @@ export function useContributors(projectId: number | undefined): TeamState {
       })
       .catch((e: unknown) => {
         if (e instanceof Error && e.name === 'AbortError') return
-        setState({ team: [], loading: false, empty: true, error: e instanceof Error ? e.message : String(e) })
+        // An error is NOT "no data": keep whatever we last loaded (so a transient
+        // Tolgee rate-limit / hiccup doesn't blank the view) and surface the error.
+        setState((s) => ({
+          team: s.team,
+          loading: false,
+          empty: false,
+          error: e instanceof Error ? e.message : String(e),
+        }))
       })
     return () => ctrl.abort()
-  }, [projectId, focusKey])
-  return state
+  }, [projectId, focusKey, reloadKey])
+  return { ...state, reload }
 }
 
 export type MeState = { member: ScoredMember | null; loading: boolean; error: string | null }

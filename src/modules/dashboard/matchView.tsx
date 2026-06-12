@@ -371,8 +371,8 @@ export function MatchBar({
   notReviewedWords: number
 }) {
   const segs = [
-    ...data.map((d) => ({ value: d.value, color: d.color })),
-    { value: notReviewedWords, color: COL.notReviewed },
+    ...data.map((d) => ({ value: d.value, color: d.color, name: d.name })),
+    { value: notReviewedWords, color: COL.notReviewed, name: 'Not reviewed' },
   ].filter((s) => s.value > 0)
   const total = segs.reduce((s, x) => s + x.value, 0)
   if (total === 0) {
@@ -383,22 +383,29 @@ export function MatchBar({
       {segs.map((s, i) => {
         const first = i === 0
         const last = i === segs.length - 1
+        const pct = Math.round((s.value / total) * 100)
         return (
-          <div
+          <MuiTooltip
             key={i}
-            style={{
-              flexGrow: s.value,
-              flexBasis: 0,
-              minWidth: 3,
-              background: s.color.startsWith('#')
-                ? `linear-gradient(90deg, ${s.color}, ${lighten(s.color, 0.3)})`
-                : s.color,
-              borderTopLeftRadius: first ? 6 : 0,
-              borderBottomLeftRadius: first ? 6 : 0,
-              borderTopRightRadius: last ? 6 : 0,
-              borderBottomRightRadius: last ? 6 : 0,
-            }}
-          />
+            arrow
+            title={`${s.name} · ${s.value.toLocaleString('en-US')} words · ${pct}%`}
+          >
+            <div
+              style={{
+                flexGrow: s.value,
+                flexBasis: 0,
+                minWidth: 3,
+                cursor: 'default',
+                background: s.color.startsWith('#')
+                  ? `linear-gradient(90deg, ${s.color}, ${lighten(s.color, 0.3)})`
+                  : s.color,
+                borderTopLeftRadius: first ? 6 : 0,
+                borderBottomLeftRadius: first ? 6 : 0,
+                borderTopRightRadius: last ? 6 : 0,
+                borderBottomRightRadius: last ? 6 : 0,
+              }}
+            />
+          </MuiTooltip>
         )
       })}
     </div>

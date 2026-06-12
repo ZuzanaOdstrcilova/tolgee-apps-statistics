@@ -1247,6 +1247,8 @@ export default function App() {
             languages={languages}
             loading={STANDALONE ? false : contributors.loading}
             empty={STANDALONE ? false : contributors.empty}
+            error={STANDALONE ? null : contributors.error}
+            onRetry={contributors.reload}
           />
         )}
       </main>

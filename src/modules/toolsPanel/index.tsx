@@ -33,7 +33,7 @@ export default function ToolsPanel() {
   const [match, setMatch] = useState<MatchResponse | null>(null)
   const [loading, setLoading] = useState(false)
   // Two stats in one panel, switched by a tab (mirrors the dashboard).
-  const [panelTab, setPanelTab] = useState<'ai' | 'contributor'>('contributor')
+  const [panelTab, setPanelTab] = useState<'ai' | 'contributor'>('ai')
   // The calling user's own contributor card (real /api/contributors/me).
   const me = useContributorMe(projectId, token)
   // Period filter — applies immediately on change. Defaults to all time.
@@ -247,7 +247,7 @@ export default function ToolsPanel() {
 }
 
 // Compact two-tab switcher for the narrow panel (AI accuracy / Contributor).
-function PanelTabs({
+export function PanelTabs({
   value,
   onChange,
 }: {

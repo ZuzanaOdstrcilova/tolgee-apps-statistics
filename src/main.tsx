@@ -8,6 +8,7 @@ import './App.css'
 const ROUTES: Record<string, () => Promise<{ default: ComponentType }>> = {
   '/dashboard': () => import('./modules/dashboard'),
   '/tools-panel': () => import('./modules/toolsPanel'),
+  '/tools-panel-empty': () => import('./modules/toolsPanelEmpty'),
 }
 
 const NotFound = () => (

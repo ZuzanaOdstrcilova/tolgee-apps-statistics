@@ -26,6 +26,14 @@
         "icon": "BarChartSquare01",
         "entry": "/tools-panel"
       }
+    ],
+    "translation-tools-panel-empty": [
+      {
+        "key": "statistics-all",
+        "title": "Statistics",
+        "icon": "BarChartSquare01",
+        "entry": "/tools-panel-empty"
+      }
     ]
   },
   "webhooks": {

@@ -4,6 +4,7 @@ import { WEBHOOK_SECRET } from '../config'
 import { store } from '../store'
 import { invalidateMatch } from '../match'
 import { invalidateContributors } from '../contributors'
+import { invalidateMatchResponses } from './match'
 
 export const registerWebhookRoute = (app: Express): void => {
   // express.text keeps the body verbatim — the SDK verifier needs the raw
@@ -36,6 +37,7 @@ const handleWebhook = async (req: Request, res: Response): Promise<void> => {
     store.recordTranslationEdits(ents, iso)
     for (const e of ents) invalidateMatch(e.entityId)
     invalidateContributors() // contributor stats changed too
+    invalidateMatchResponses() // mark match responses stale (refresh in bg, stays fast)
   })
 
   // State transitions → REVIEWED credits the current author's "accuracy".
@@ -45,6 +47,7 @@ const handleWebhook = async (req: Request, res: Response): Promise<void> => {
     store.recordStateChanges(ents, iso)
     for (const e of ents) invalidateMatch(e.entityId)
     invalidateContributors()
+    invalidateMatchResponses()
   })
 
   // Deleting a key removes its translations → recompute contributor stats.
@@ -53,6 +56,7 @@ const handleWebhook = async (req: Request, res: Response): Promise<void> => {
   // harmlessly). CREATE_KEY adds untranslated cells with no activity → no-op.
   onWebhook(payload, 'KEY_DELETE', () => {
     invalidateContributors()
+    invalidateMatchResponses()
   })
 
   res.status(204).end()

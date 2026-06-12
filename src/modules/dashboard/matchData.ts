@@ -157,6 +157,21 @@ export type UseMatchData = MatchAgg & {
   error: string | null
 }
 
+/** Turn an /api/match failure into a human message — Tolgee rate-limits the
+ *  expensive history fetches, which surfaces as a 502 wrapping a 429. */
+const matchErrorMessage = (status: number, body: string): string => {
+  if (/429|rate_limited/i.test(body)) {
+    return 'Tolgee is rate-limiting requests right now — wait a minute or two, then click Generate again.'
+  }
+  try {
+    const j = JSON.parse(body) as { error?: string }
+    if (j.error) return j.error
+  } catch {
+    /* not JSON */
+  }
+  return `Couldn’t reach the stats server (HTTP ${status}).`
+}
+
 /**
  * Fetches /api/match per selected language and aggregates progressively.
  * Re-runs whenever the filters change or `generateKey` is bumped (the
@@ -192,7 +207,10 @@ export function useMatchData(
       fetch(`/api/match?projectId=${projectId}&langs=${tag}&range=${rangeParam}`, {
         signal: ctrl.signal,
       })
-        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+        .then(async (r) => {
+          if (r.ok) return r.json()
+          throw new Error(matchErrorMessage(r.status, await r.text().catch(() => '')))
+        })
         .then((d: MatchResponse) => {
           if (ctrl.signal.aborted) return
           if (d && d.ok) setResponses((prev) => ({ ...prev, [tag]: d }))

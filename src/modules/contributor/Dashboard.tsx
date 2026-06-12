@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FormControl, MenuItem, Select, Tooltip as MuiTooltip } from '@mui/material'
+import { Button, FormControl, MenuItem, Select, Tooltip as MuiTooltip } from '@mui/material'
 import { LanguageSelect, type LangOption } from '../../lib/LanguageSelect'
 import { Flag } from '../../lib/flag'
 import { InfoTip, TipIcon } from '../dashboard/matchView'
@@ -310,12 +310,16 @@ export function ContributorDashboard({
   languages = [],
   loading = false,
   empty = false,
+  error = null,
+  onRetry,
 }: {
   team: ScoredMember[]
   /** Project languages (name + base) for the Languages filter — same as AI accuracy. */
   languages?: LangOption[]
   loading?: boolean
   empty?: boolean
+  error?: string | null
+  onRetry?: () => void
 }) {
   // Period mirrors AI accuracy's full range list. Volume only has two buckets
   // (30-day vs all-time), so any range shorter than All time uses the 30-day
@@ -354,6 +358,21 @@ export function ContributorDashboard({
   })
 
   if (loading) return <ContributorSkeleton />
+  // An error with nothing loaded is NOT "no data" — show a retry, not the empty
+  // state (e.g. a transient Tolgee rate-limit shouldn't read as "no contributors").
+  if (error && team.length === 0) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '64px 24px', textAlign: 'center' }}>
+        <div style={{ ...FONT.subtitle, color: C.text }}>Couldn’t load contributors</div>
+        <div style={{ ...FONT.caption, color: C.dim, maxWidth: 420 }}>{error}</div>
+        {onRetry && (
+          <Button variant="outlined" size="small" onClick={onRetry} sx={{ mt: 1 }}>
+            Retry
+          </Button>
+        )}
+      </div>
+    )
+  }
   if (empty || team.length === 0) return <ContributorEmpty />
 
   return (
