@@ -69,12 +69,6 @@ export type ListedTranslation = {
   mtProvider?: string
 }
 
-export type HistoryRevision = {
-  timestamp: number
-  revisionType: string
-  modifications: Record<string, { old?: unknown; new?: unknown }>
-}
-
 // ---- Raw response shapes (narrow subset of the OpenAPI models) -------------
 
 type LanguagesResponse = {
@@ -103,8 +97,6 @@ type KeysResponse = {
     keys?: Array<{ translations?: Record<string, TranslationView | undefined> }>
   }
 }
-
-type HistoryResponse = { _embedded?: { revisions?: HistoryRevision[] } }
 
 // ---- Fetchers --------------------------------------------------------------
 
@@ -218,49 +210,6 @@ export const fetchAliveTranslations = async (projectId: number): Promise<Map<num
   return out
 }
 
-/** Translations currently in the REVIEWED state for a language. */
-export const fetchReviewedTranslations = (
-  projectId: number,
-  tag: string
-): Promise<ListedTranslation[]> =>
-  pageTranslations(
-    projectId,
-    tag,
-    (qs) => qs.append('filterState', `${tag},REVIEWED`),
-    (t) => t.state === 'REVIEWED'
-  )
-
-/**
- * AI-translated cells that are NOT yet reviewed — the "Not reviewed" bucket.
- * `filterAutoTranslatedInLang` returns still-auto translations; we keep the
- * ones that haven't reached REVIEWED.
- */
-export const fetchNotReviewedAi = (
-  projectId: number,
-  tag: string
-): Promise<ListedTranslation[]> =>
-  pageTranslations(
-    projectId,
-    tag,
-    (qs) => qs.append('filterAutoTranslatedInLang', tag),
-    (t) => t.state !== 'REVIEWED'
-  )
-
-const HISTORY_PAGE_SIZE = 100
-
-/** Ordered revisions for one translation (newest → oldest, as Tolgee returns). */
-export const fetchHistory = async (
-  projectId: number,
-  translationId: number
-): Promise<HistoryRevision[]> => {
-  const qs = new URLSearchParams({ size: String(HISTORY_PAGE_SIZE), page: '0' })
-  const json = await tolgeeFetch<HistoryResponse>(
-    `/v2/projects/${projectId}/translations/${translationId}/history`,
-    qs
-  )
-  return json._embedded?.revisions ?? []
-}
-
 // ---- Activity log (contributor stats) -------------------------------------
 
 /** Author of an activity revision. `id` is null for system/import events. */
@@ -352,6 +301,96 @@ export const fetchQaIssueTranslationIds = async (
   for (const r of rows) ids.add(r.translationId)
   return ids
 }
+
+// ---- AI match stats (native Tolgee aggregate) ------------------------------
+
+/** One score bucket on the project summary: word/key/contributing-language counts. */
+export type AiMatchBucket = { words: number; keys: number; langs: number }
+
+/** `GET /v2/projects/{id}/ai-match-stats` — project-wide summary. */
+export type AiMatchSummary = {
+  projectId: number
+  reviewedAfter: number | null
+  reviewedBefore: number | null
+  /** epoch ms of the last materialized refresh (null if never). */
+  generatedAt: number | null
+  /** false while a huge project's first-time backfill is still catching up. */
+  upToDate: boolean
+  b100: AiMatchBucket
+  b9990: AiMatchBucket
+  b8980: AiMatchBucket
+  b7970: AiMatchBucket
+  bno: AiMatchBucket
+  reviewedWords: number
+  reviewedKeys: number
+  notReviewedWords: number
+  notReviewedKeys: number
+  langCount: number
+  avgMatchScore: number
+  reviewedPct: number
+}
+
+/** One row of `GET /v2/projects/{id}/ai-match-stats/languages`. */
+export type AiMatchLangRow = {
+  tag: string
+  name: string | null
+  flag: string | null
+  total: number
+  b100: number
+  b9990: number
+  b8980: number
+  b7970: number
+  bno: number
+  notReviewed: number
+  avgMatchScore: number
+  b100Pct: number
+  b9990Pct: number
+  b8980Pct: number
+  b7970Pct: number
+  bnoPct: number
+  notReviewedPct: number
+}
+
+export type AiMatchLanguages = {
+  generatedAt: number | null
+  perLang: AiMatchLangRow[]
+}
+
+/** Shared query string: repeatable `languages` + optional epoch-ms range bounds. */
+const matchStatsQuery = (
+  tags: readonly string[],
+  reviewedAfter?: number,
+  reviewedBefore?: number
+): URLSearchParams => {
+  const qs = new URLSearchParams()
+  for (const tag of tags) qs.append('languages', tag)
+  // 0 / undefined ⇒ "all time" ⇒ omit the bound entirely.
+  if (reviewedAfter && reviewedAfter > 0) qs.set('reviewedAfter', String(reviewedAfter))
+  if (reviewedBefore && reviewedBefore > 0) qs.set('reviewedBefore', String(reviewedBefore))
+  return qs
+}
+
+export const fetchAiMatchSummary = (
+  projectId: number,
+  tags: readonly string[],
+  reviewedAfter?: number,
+  reviewedBefore?: number
+): Promise<AiMatchSummary> =>
+  tolgeeFetch<AiMatchSummary>(
+    `/v2/projects/${projectId}/ai-match-stats`,
+    matchStatsQuery(tags, reviewedAfter, reviewedBefore)
+  )
+
+export const fetchAiMatchLanguages = (
+  projectId: number,
+  tags: readonly string[],
+  reviewedAfter?: number,
+  reviewedBefore?: number
+): Promise<AiMatchLanguages> =>
+  tolgeeFetch<AiMatchLanguages>(
+    `/v2/projects/${projectId}/ai-match-stats/languages`,
+    matchStatsQuery(tags, reviewedAfter, reviewedBefore)
+  )
 
 // ---- AI context (for the "Improve AI accuracy" panel links) ---------------
 

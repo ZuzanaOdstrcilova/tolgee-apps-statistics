@@ -2,9 +2,7 @@ import express, { type Express, type Request, type Response } from 'express'
 import { onWebhook, receiveWebhook } from '@tolgee/apps-sdk/server'
 import { WEBHOOK_SECRET } from '../config'
 import { store } from '../store'
-import { invalidateMatch } from '../match'
 import { invalidateContributors } from '../contributors'
-import { invalidateMatchResponses } from './match'
 
 export const registerWebhookRoute = (app: Express): void => {
   // express.text keeps the body verbatim — the SDK verifier needs the raw
@@ -29,34 +27,29 @@ const handleWebhook = async (req: Request, res: Response): Promise<void> => {
   }
   const payload = result.payload
 
-  // Translation text edits → classify AI vs human authorship, and drop the
-  // match cache for touched translations so the next /api/match recomputes them.
+  // Translation text edits → classify AI vs human authorship for the tools panel
+  // and recompute contributor stats. (Match stats no longer cache here — they read
+  // Tolgee's native ai-match-stats aggregate on demand, so nothing to invalidate.)
   onWebhook(payload, 'SET_TRANSLATIONS', (typed) => {
     const iso = isoTimestamp(typed.activityData?.timestamp)
     const ents = typed.activityData?.modifiedEntities?.Translation ?? []
     store.recordTranslationEdits(ents, iso)
-    for (const e of ents) invalidateMatch(e.entityId)
     invalidateContributors() // contributor stats changed too
-    invalidateMatchResponses() // mark match responses stale (refresh in bg, stays fast)
   })
 
-  // State transitions → REVIEWED credits the current author's "accuracy".
+  // State transitions → keep the tools panel's per-cell reviewed flag current and
+  // refresh contributor stats.
   onWebhook(payload, 'SET_TRANSLATION_STATE', (typed) => {
     const iso = isoTimestamp(typed.activityData?.timestamp)
     const ents = typed.activityData?.modifiedEntities?.Translation ?? []
     store.recordStateChanges(ents, iso)
-    for (const e of ents) invalidateMatch(e.entityId)
     invalidateContributors()
-    invalidateMatchResponses()
   })
 
-  // Deleting a key removes its translations → recompute contributor stats.
-  // Match self-corrects: /api/match always re-lists reviewed translations, so
-  // deleted ones simply drop out (their per-translation cache entries orphan
-  // harmlessly). CREATE_KEY adds untranslated cells with no activity → no-op.
+  // Deleting a key removes its translations → recompute contributor stats. Match
+  // stats self-correct (the native endpoint re-reads the activity log on demand).
   onWebhook(payload, 'KEY_DELETE', () => {
     invalidateContributors()
-    invalidateMatchResponses()
   })
 
   res.status(204).end()
