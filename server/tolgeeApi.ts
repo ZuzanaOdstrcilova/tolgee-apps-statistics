@@ -185,19 +185,20 @@ const pageTranslations = async (
 }
 
 /**
- * The set of translation entity IDs that CURRENTLY exist in the project (all
- * languages, any state). Contributor stats are reconstructed from the activity
- * log, which is append-only — deleting a key leaves its historical events
- * behind. Intersecting with this set drops contributions to deleted strings so
- * volume/languages reflect what still exists.
+ * Every translation that CURRENTLY exists in the project (all languages, any
+ * state) → `id → current text`. Contributor stats are reconstructed from the
+ * activity log, which is append-only — deleting a key leaves its historical
+ * events behind. Intersecting with this map drops contributions to deleted
+ * strings, and the current text lets us derive state-based signals (e.g. the
+ * "maga" count) from what's live now, not from old revisions.
  */
-export const fetchAliveTranslationIds = async (projectId: number): Promise<Set<number>> => {
+export const fetchAliveTranslations = async (projectId: number): Promise<Map<number, string>> => {
   // Request EVERY language explicitly — without `languages` the endpoint returns
   // only a subset, which would drop live work in the other languages.
   const { list } = await getProjectLanguages(projectId)
   const tags = list.map((l) => l.tag)
-  const ids = new Set<number>()
-  if (tags.length === 0) return ids
+  const out = new Map<number, string>()
+  if (tags.length === 0) return out
   let cursor: string | undefined
   for (let i = 0; i < MAX_PAGES; i++) {
     const qs = new URLSearchParams()
@@ -208,13 +209,13 @@ export const fetchAliveTranslationIds = async (projectId: number): Promise<Set<n
     const keys = json._embedded?.keys ?? []
     for (const k of keys) {
       for (const t of Object.values(k.translations ?? {})) {
-        if (t && typeof t.id === 'number') ids.add(t.id)
+        if (t && typeof t.id === 'number') out.set(t.id, t.text ?? '')
       }
     }
     cursor = json.nextCursor
     if (!cursor || keys.length === 0) break
   }
-  return ids
+  return out
 }
 
 /** Translations currently in the REVIEWED state for a language. */

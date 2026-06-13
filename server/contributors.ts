@@ -1,6 +1,6 @@
 import {
   fetchActivity,
-  fetchAliveTranslationIds,
+  fetchAliveTranslations,
   fetchQaIssueTranslationIds,
   tolgeeBaseUrl,
   type ActivityRevision,
@@ -98,7 +98,6 @@ type Acc = {
   reviewedPostedits: number
   cleanPostedits: number
   owned: Set<number> // translations where this author is the current human text-setter
-  magaCount: number // joke demo: times they wrote the word "maga"
 }
 
 const newAcc = (id: number, name: string): Acc => ({
@@ -118,7 +117,6 @@ const newAcc = (id: number, name: string): Acc => ({
   reviewedPostedits: 0,
   cleanPostedits: 0,
   owned: new Set(),
-  magaCount: 0,
 })
 
 /** One translation's most recent un-reviewed human edit, pending a review verdict. */
@@ -129,7 +127,7 @@ export const computeContributors = async (projectId: number): Promise<Contributo
 
   const [revisions, alive] = await Promise.all([
     fetchActivity(projectId),
-    fetchAliveTranslationIds(projectId),
+    fetchAliveTranslations(projectId), // id → current text (also the alive-set)
   ])
   // Activity comes newest-first; build timelines oldest→newest.
   revisions.sort((a, b) => a.timestamp - b.timestamp)
@@ -204,7 +202,6 @@ export const computeContributors = async (projectId: number): Promise<Contributo
           // log doesn't expand per-translation).
           const postedit = currentIsAi.get(entityId) === true || wasAiBeforeModification(mods)
           a.strings++
-          a.magaCount += countMaga(mods.text?.new) // joke demo badge
           if (postedit) {
             a.postedit++
             a.aiFixed++
@@ -303,7 +300,10 @@ export const computeContributors = async (projectId: number): Promise<Contributo
       cleanRate: pct(a.cleanEdits, a.reviewedEdits),
       qaPass: a.owned.size === 0 ? 100 : pct(a.owned.size - withIssue, a.owned.size),
       survival: pct(a.cleanPostedits, a.reviewedPostedits),
-      magaCount: a.magaCount,
+      // Count "maga" in the CURRENT text of the translations this person owns —
+      // so it reflects live state (editing the word out, or deleting the key,
+      // lowers it). Free: `alive` already holds every current translation's text.
+      magaCount: [...a.owned].reduce((s, id) => s + countMaga(alive.get(id)), 0),
       mix: {
         postedit: pct(a.postedit, actions),
         scratch: pct(a.scratch, actions),
