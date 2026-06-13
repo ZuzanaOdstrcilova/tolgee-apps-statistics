@@ -22,7 +22,8 @@ const STANDALONE = window.parent === window
 // the translations view when NO cell is selected. Unlike the per-cell panel
 // (one focused language), this shows AI accuracy for ALL languages currently
 // displayed in the view (selection.selectedLanguages, alpha.7) — one compact row
-// per language — plus the same Contributor card.
+// per language — plus the same Contributor card. Each language is read from
+// Tolgee's native ai-match-stats aggregate on open and rows fill progressively.
 
 // A per-language row's score buckets as MatchBar slices (value + colour + name,
 // the name shows in the segment's hover tooltip).
@@ -58,8 +59,8 @@ function LangRow({ r }: { r: MatchPerLang }) {
   )
 }
 
-// Per-row loading placeholder: the flag + name show immediately (known), the
-// score + bar shimmer until that language resolves (progressive rendering).
+// Per-row loading placeholder: the name shows immediately (known from the tag),
+// the score + bar shimmer until that language resolves (progressive rendering).
 function LangRowSkeleton({ name, flag }: { name?: string; flag?: string }) {
   const cell = (style: CSSProperties) => <div className="s-skel" style={style} aria-hidden />
   return (
@@ -80,65 +81,11 @@ function LangRowSkeleton({ name, flag }: { name?: string; flag?: string }) {
   )
 }
 
-// Shared style for the Generate/Regenerate button.
-const regenBtn = (loading: boolean): CSSProperties => ({
-  appearance: 'none',
-  cursor: loading ? 'default' : 'pointer',
-  ...FONT.micro,
-  fontWeight: 600,
-  color: loading ? COL.faint : COL.accent,
-  background: 'transparent',
-  border: `1px solid ${loading ? COL.line : COL.accent}`,
-  borderRadius: 8,
-  padding: '5px 12px',
-})
-
-// Idle state: the cache had nothing for these languages — wait for Generate
-// (this panel never computes on its own).
-function AiIdle({
-  count,
-  onRegenerate,
-  loading,
-}: {
-  count: number
-  onRegenerate: () => void
-  loading: boolean
-}) {
-  return (
-    <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ ...FONT.body, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-          AI accuracy
-        </span>
-        <span style={{ ...FONT.micro, color: COL.dim }}>
-          {count} {count === 1 ? 'language' : 'languages'} shown
-        </span>
-      </div>
-      <p style={{ ...FONT.caption, color: COL.dim, margin: 0 }}>
-        Generate AI match scores for the languages shown in this view.
-      </p>
-      <button type="button" onClick={onRegenerate} disabled={loading} style={{ alignSelf: 'flex-start', ...regenBtn(loading) }}>
-        {loading ? 'Generating…' : 'Generate'}
-      </button>
-    </div>
-  )
-}
-
 // Per-language load state: the resolved row (null = loaded but no data) + whether
-// a fetch for this language is in flight (Regenerate).
+// a fetch for this language is still in flight.
 type LangState = { row: MatchPerLang | null; loading: boolean }
 
-function AiAllLanguages({
-  tags,
-  byTag,
-  onRegenerate,
-  computing = false,
-}: {
-  tags: string[]
-  byTag: Record<string, LangState>
-  onRegenerate?: () => void
-  computing?: boolean
-}) {
+function AiAllLanguages({ tags, byTag }: { tags: string[]; byTag: Record<string, LangState> }) {
   const anyLoading = tags.some((t) => byTag[t]?.loading)
   const dataTags = tags.filter((t) => (byTag[t]?.row?.total ?? 0) > 0)
   return (
@@ -150,16 +97,6 @@ function AiAllLanguages({
         <span style={{ ...FONT.micro, color: COL.dim }}>
           {tags.length} {tags.length === 1 ? 'language' : 'languages'} shown
         </span>
-        {onRegenerate && (
-          <button
-            type="button"
-            onClick={onRegenerate}
-            disabled={computing}
-            style={{ marginLeft: 'auto', ...regenBtn(computing) }}
-          >
-            {computing ? 'Loading…' : 'Regenerate'}
-          </button>
-        )}
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -222,22 +159,16 @@ function EmptyPanelContent() {
   const [token, setToken] = useState<string>()
   const [selection, setSelection] = useState<TolgeeAppSelection>({})
   const [tab, setTab] = useState<'ai' | 'contributor'>('ai')
-  // Per-language results. Open/refresh READS each language's cache (cacheOnly →
-  // never computes → can't crash/rate-limit); Regenerate COMPUTES each language.
-  // Rows share the per-language cache with the single panel + dashboard, so they
-  // show up far more often, and render progressively as each language resolves.
+  // Per-language results, shared with the single panel + dashboard cache so rows
+  // show up quickly and render progressively as each language resolves.
   const [byTag, setByTag] = useState<Record<string, LangState>>({})
-  const [computing, setComputing] = useState(false) // a Regenerate is in flight
-  const [everComputed, setEverComputed] = useState(false)
-  const [readDone, setReadDone] = useState(false) // initial cache read finished
-  const targetTagsRef = useRef<string[]>([])
   const loadCtrlRef = useRef<AbortController | null>(null)
 
   // Context + live selection (which languages are shown in the view). We do NOT
   // fetch the project languages — the panel takes selection.selectedLanguages
-  // directly, so it reads its cache the instant it mounts (no network round-trip
-  // on every re-mount when switching from the dashboard). The server skips the
-  // base language and the per-language match response already carries name/flag.
+  // directly, so it loads the instant it mounts (no network round-trip on every
+  // re-mount when switching from the dashboard). The server skips the base
+  // language and the per-language match response already carries name/flag.
   useEffect(() => {
     if (STANDALONE) return
     const app = createTolgeeApp()
@@ -258,34 +189,27 @@ function EmptyPanelContent() {
   // The languages shown in the view. Base is harmless: the server returns no AI
   // data for it, so its row is simply hidden.
   const targetTags = useMemo(() => selection.selectedLanguages ?? [], [selection.selectedLanguages])
-
   const targetKey = targetTags.join(',')
-  useEffect(() => {
-    targetTagsRef.current = targetTags
-  }, [targetTags])
 
-  // Load each language separately. cacheOnly=true → pure cache READ (no compute,
-  // can't crash/rate-limit); false → real COMPUTE (Regenerate). Aborts any
-  // previous load; rows fill in progressively as each language resolves.
-  const loadAll = (tags: string[], cacheOnly: boolean) => {
+  // Load each shown language from the native ai-match-stats aggregate when the
+  // selection settles. Aborts any previous load; rows fill in progressively.
+  useEffect(() => {
+    if (STANDALONE || projectId == null || targetTags.length === 0) return
     loadCtrlRef.current?.abort()
     const ctrl = new AbortController()
     loadCtrlRef.current = ctrl
-    if (!cacheOnly) {
-      setComputing(true)
-      setEverComputed(true)
-      setByTag((prev) => {
-        const next = { ...prev }
-        for (const t of tags) next[t] = { row: prev[t]?.row ?? null, loading: true }
-        return next
-      })
-    }
+    setByTag((prev) => {
+      const next = { ...prev }
+      for (const t of targetTags) next[t] = { row: prev[t]?.row ?? null, loading: true }
+      return next
+    })
     void (async () => {
-      for (const tag of tags) {
+      for (const tag of targetTags) {
         if (ctrl.signal.aborted) return
         try {
-          const url = `/api/match?projectId=${projectId}&langs=${tag}&range=all${cacheOnly ? '&cacheOnly=1' : ''}`
-          const r = await fetch(url, { signal: ctrl.signal })
+          const r = await fetch(`/api/match?projectId=${projectId}&langs=${tag}&range=all`, {
+            signal: ctrl.signal,
+          })
           const d: { ok?: boolean; perLang?: MatchPerLang[] } | null = r.ok ? await r.json() : null
           const row: MatchPerLang | null = d && d.ok ? d.perLang?.[0] ?? null : null
           setByTag((prev) => ({ ...prev, [tag]: { row, loading: false } }))
@@ -294,47 +218,19 @@ function EmptyPanelContent() {
           setByTag((prev) => ({ ...prev, [tag]: { row: prev[tag]?.row ?? null, loading: false } }))
         }
       }
-      if (ctrl.signal.aborted) return
-      if (cacheOnly) setReadDone(true)
-      else setComputing(false)
     })()
-  }
-
-  // Reactive cache READ when the shown languages settle (no compute → safe).
-  useEffect(() => {
-    if (STANDALONE || projectId == null) return
-    setReadDone(false)
-    if (targetTags.length === 0) return
-    loadAll(targetTags, true)
-    return () => loadCtrlRef.current?.abort()
+    return () => ctrl.abort()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, targetKey])
 
-  const onRegenerate = () => {
-    if (projectId == null) return
-    const tags = targetTagsRef.current
-    if (tags.length > 0) loadAll(tags, false)
-  }
   const me = useContributorMe(projectId, token)
 
-  const anyData = targetTags.some((t) => (byTag[t]?.row?.total ?? 0) > 0)
-  const anyLoading = targetTags.some((t) => byTag[t]?.loading)
-  // Cache had nothing AND nothing computed yet → show the Generate prompt.
-  const showIdle = readDone && !everComputed && !anyData && !anyLoading
-
   const aiContent = STANDALONE ? (
-    <AiAllLanguages tags={MOCK_TAGS} byTag={MOCK_BY_TAG} computing={false} />
+    <AiAllLanguages tags={MOCK_TAGS} byTag={MOCK_BY_TAG} />
   ) : targetTags.length === 0 ? (
     <p style={{ padding: 16, ...FONT.caption, color: COL.faint }}>No languages shown in this view.</p>
-  ) : showIdle ? (
-    <AiIdle count={targetTags.length} onRegenerate={onRegenerate} loading={computing} />
   ) : (
-    <AiAllLanguages
-      tags={targetTags}
-      byTag={byTag}
-      onRegenerate={onRegenerate}
-      computing={computing}
-    />
+    <AiAllLanguages tags={targetTags} byTag={byTag} />
   )
 
   return (
