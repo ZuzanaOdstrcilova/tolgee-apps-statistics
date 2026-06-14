@@ -32,7 +32,7 @@ export const CONFIG = {
   // Badge thresholds — derived from the same raw signals as trust (single place
   // to tune; never hard-coded per member).
   badges: {
-    workhorseVolumeScore: 70, // ~1000+ strings
+    workhorseVolumeScore: 70, // volumeScore ≥ 70 ≈ ~390+ strings (matches BADGE_HOWTO)
     polyglotLangs: 3,
     nativeVoiceStrings: 300,
     cleanHandsRate: 90,
@@ -238,26 +238,52 @@ export function deriveBadges(m: Member): BadgeKey[] {
 }
 
 /**
- * Closest unearned badge + a short nudge (brief §5.6). The progress and nudge
- * are illustrative until per-badge thresholds are defined against real data.
- * // MOCK (closest-badge progress & nudge)
+ * How close (0..100) a member is to earning a badge, measured from the SAME raw
+ * signal the badge is derived from (see `deriveBadges`). 100 = already earned.
+ */
+export function badgeProgress(m: Member, key: BadgeKey): number {
+  const b = CONFIG.badges
+  const ratio = (cur: number, target: number): number => clamp100(Math.round((100 * cur) / target))
+  switch (key) {
+    case 'workhorse':
+      return ratio(volumeScore(m.strings), b.workhorseVolumeScore)
+    case 'polyglot':
+      return ratio(m.langs.length, b.polyglotLangs)
+    // Native Voice needs a single language; with several, focusing isn't "near".
+    case 'nativevoice':
+      return m.langs.length <= 1 ? ratio(m.strings, b.nativeVoiceStrings) : 0
+    case 'cleanhands':
+      return ratio(m.cleanRate, b.cleanHandsRate)
+    case 'qaghost':
+      return ratio(m.qaPass, b.qaGhostPass)
+    case 'guardian':
+      return ratio(m.mix.review, b.guardianReviewMix)
+    case 'aitamer':
+      return ratio(m.aiFixed, b.aiTamerFixed)
+    case 'maga':
+      return ratio(m.magaCount ?? 0, b.magaMentions)
+  }
+}
+
+/**
+ * The unearned badge a member is NEAREST to earning (highest real progress),
+ * with that progress and a short nudge (brief §5.6).
  */
 export function closestBadge(m: ScoredMember): { key: BadgeKey; progress: number; nudge: string } | null {
-  const next = BADGE_ORDER.find((b) => !m.badges.includes(b))
-  if (!next) return null
+  const unearned = BADGE_ORDER.filter((b) => !m.badges.includes(b))
+  if (unearned.length === 0) return null
+  const next = unearned.reduce((best, b) => (badgeProgress(m, b) > badgeProgress(m, best) ? b : best))
   const nudges: Record<BadgeKey, string> = {
     workhorse: 'keep translating — volume is building',
     polyglot: 'contribute in one more language',
     nativevoice: 'deepen focus on your main language',
     cleanhands: 'keep getting accepted without edits',
-    qaghost: `keep QA checks low on ${40} more strings`,
+    qaghost: 'keep QA checks from triggering as you add strings',
     guardian: 'catch and fix more flagged issues',
     aitamer: 'correct more machine output',
     maga: 'write “maga” a few more times 🧢',
   }
-  // Illustrative progress: lean on the most relevant signal we already have.
-  const progress = clamp100(Math.round(m.qaPass * 0.75))
-  return { key: next, progress, nudge: nudges[next] }
+  return { key: next, progress: badgeProgress(m, next), nudge: nudges[next] }
 }
 
 // ── Fetch hooks (real backend; no mock) ─────────────────────────────────────

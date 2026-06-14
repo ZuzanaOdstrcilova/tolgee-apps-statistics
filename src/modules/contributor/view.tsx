@@ -13,6 +13,7 @@ import {
   MIX_META,
   TIER_META,
   closestBadge,
+  tierOf,
   type BadgeKey,
   type Mix,
   type ScoredMember,
@@ -297,7 +298,7 @@ export function TrustRing({
   size?: number
   preliminary?: boolean
 }) {
-  const color = TIER_META[trust >= 85 ? 'core' : trust >= 65 ? 'trusted' : 'new'].color
+  const color = TIER_META[tierOf(trust)].color
   const data = [{ name: 'trust', value: trust, fill: color }]
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
@@ -347,17 +348,19 @@ export function PreliminaryTag() {
   )
 }
 
-/** Trust score as a magenta-on-light pill (the leaderboard cell). */
-/** Trust score → band colour, mirroring the AI match-score palette:
- *  ≥90 green · 80–89 teal · 70–79 light blue · <70 light pink. */
-export const trustColor = (trust: number): string =>
-  trust >= 90 ? '#00C86C' : trust >= 80 ? '#5CD6B0' : trust >= 70 ? '#4FC3F7' : '#FF7A8F'
+// The leaderboard Trust pill bands by the SAME tier cut-offs as the tier tag and
+// the trust ring (via `tierOf` → CONFIG.tier), so a member's pill, tag and ring
+// can never disagree. `TIER_META[tier].color` is the tint; a darker per-tier hue
+// gives the number proper contrast on that tint.
+/** Trust score → tier band colour (tint). */
+export const trustColor = (trust: number): string => TIER_META[tierOf(trust)].color
 
-// Darker, more saturated band colours for TEXT — the pill's tinted background
-// keeps the soft band hue, but the number reads with proper contrast (the pale
-// teal/light-blue were washed out as text).
-const trustTextColor = (trust: number): string =>
-  trust >= 90 ? '#0a8f4f' : trust >= 80 ? '#0e8a76' : trust >= 70 ? '#1565c0' : '#c2185b'
+const TIER_TEXT_COLOR: Record<Tier, string> = {
+  new: '#5b6170', // darker grey
+  trusted: '#8a6d00', // darker amber
+  core: '#0e8a76', // darker teal
+}
+const trustTextColor = (trust: number): string => TIER_TEXT_COLOR[tierOf(trust)]
 
 export function TrustPill({ trust }: { trust: number }) {
   const color = trustColor(trust)

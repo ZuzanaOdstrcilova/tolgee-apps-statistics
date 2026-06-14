@@ -5,6 +5,7 @@ import {
   BADGES,
   BADGE_ORDER,
   TIER_META,
+  tierOf,
   volumeFor,
   type RangeKey,
   type ScoredMember,
@@ -62,8 +63,7 @@ export function ContributorPanel({
   if (loading) return <ContributorPanelSkeleton />
   if (!member) return <ContributorEmpty panel message="Your contributor stats appear once you have translation activity in this project." />
   const cleanColor = member.cleanRate >= 85 ? '#22c39a' : member.cleanRate >= 70 ? '#d8a008' : '#e6256b'
-  const trustColor =
-    TIER_META[member.trust >= 85 ? 'core' : member.trust >= 65 ? 'trusted' : 'new'].color
+  const trustColor = TIER_META[tierOf(member.trust)].color
   const unearned = BADGE_ORDER.filter((b) => !member.badges.includes(b))
 
   return (
